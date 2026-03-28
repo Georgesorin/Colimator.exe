@@ -1,0 +1,6 @@
+{
+	"send_port": 6768,
+	"recv_port": 6769,
+	"device_ip": "255.255.255.255",
+	"last_used_ports": []
+}

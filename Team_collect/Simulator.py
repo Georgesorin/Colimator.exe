@@ -13,8 +13,8 @@ _CFG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "eye_sim_co
 
 def _load_config():
     defaults = {
-        "send_port": 7800,
-        "recv_port": 4626,
+        "send_port": 6769,
+        "recv_port": 6768,
         "device_ip": "255.255.255.255",
         "last_used_ports": []
     }
