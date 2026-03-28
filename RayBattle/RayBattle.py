@@ -94,9 +94,9 @@ ACCEL_STEP      = SPEED_PRESETS[DEFAULT_SPEED][3]
 # ──────────────────────────────────────────────────────────────
 BLACK        = (0,   0,   0)
 WHITE        = (255, 255, 255)
-GRAY         = (55,  55,  55)
-TEAM_A_COLOR = (220,  40,  40)   # red  — Team A players + rays
-TEAM_B_COLOR = ( 30,  80, 220)   # blue — Team B players + rays
+GRAY         = (180,  180,  180)
+TEAM_A_COLOR = (255,  0,  0)   # red  — Team A players + rays
+TEAM_B_COLOR = (0,  0, 255)   # blue — Team B players + rays
 HEART_FULL   = (220,  30,  30)
 HEART_EMPTY  = ( 55,   0,   0)
 HIT_COLOR    = (255, 220,   0)   # yellow cross on hit
