@@ -38,12 +38,25 @@ import os
 # Configuration
 # ──────────────────────────────────────────────────────────────
 
+_CFG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_game.json")
+
 def _load_config():
     defaults = {
-        "device_ip":  "127.0.0.1",
-        "send_port":  6766,
-        "recv_port":  6767,
+        "device_ip": "127.0.0.1",
+        "send_port": 6766,
+        "recv_port": 6767,
     }
+    try:
+        if os.path.exists(_CFG_FILE):
+            with open(_CFG_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+                merged = {**defaults, **data}
+                # Accept "device-ip" (dash) as well as "device_ip" (underscore)
+                if "device-ip" in data and "device_ip" not in data:
+                    merged["device_ip"] = data["device-ip"]
+                return merged
+    except Exception:
+        pass
     return defaults
 
 CONFIG          = _load_config()
@@ -128,7 +141,7 @@ def px_cross(buf, col, row, color):
 def decode_input(data):
     """Convert 1373-byte hardware packet → set of active (col, row) tiles."""
     active = set()
-    if len(data) < 1373 or data[0] != 0x88 or data[1] != 0x01:
+    if len(data) < 1373 or data[0] != 0x88:
         return active
     for ch in range(NUM_CHANNELS):
         base = 2 + ch * 171
@@ -557,7 +570,6 @@ class NetworkManager:
 
         self._rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._rx.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._rx.settimeout(0.5)
         try:
             self._rx.bind(("0.0.0.0", UDP_LISTEN_PORT))
             print(f"[Net] RX on :{UDP_LISTEN_PORT}")
@@ -626,8 +638,6 @@ class NetworkManager:
                     tiles = decode_input(data)
                     with self.game.lock:
                         self.game.active_tiles = tiles
-            except socket.timeout:
-                pass
             except Exception:
                 pass
 
