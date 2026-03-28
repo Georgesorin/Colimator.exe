@@ -6,8 +6,8 @@ from matrix_engine import MatrixEngine
 # --- Theming & Colors ---
 P1_COLOR = (0, 255, 255)       # Bright Cyan
 P2_COLOR = (255, 0, 255)       # Bright Magenta
-P1_TRAIL = (0, 100, 100)       # Cyan Trail
-P2_TRAIL = (100, 0, 100)       # Magenta Trail
+P1_TRAIL = (0, 50, 50)         # Darker Cyan Trail
+P2_TRAIL = (50, 0, 50)         # Darker Magenta Trail
 WALL_COLOR = (0, 255, 0)       # NEON GREEN for all walls
 PERIMETER_COLOR = (0, 255, 0)  # NEON GREEN for borders
 STUN_COLOR = (255, 0, 0)       # Red for Heart
@@ -21,15 +21,31 @@ MAX_LIVES = 5
 STUN_DURATION = 3.5 
 TRAIL_LIFETIME = 60.0
 
-# --- Standard 3x5 Font ---
 FONT_3x5 = {
-    ' ': [0,0,0], '!': [0, 23, 0], '?': [1, 21, 7], '1': [0, 31, 0], '2': [29, 21, 23], 
-    '3': [21, 21, 31], '4': [7, 4, 31], '5': [23, 21, 29], 'A': [30, 5, 30], 'B': [31, 21, 10], 
-    'C': [14, 17, 17], 'D': [31, 17, 14], 'E': [31, 21, 21], 'F': [31, 5, 5], 'G': [14, 21, 29], 
-    'H': [31, 4, 31], 'I': [17, 31, 17], 'K': [31, 4, 27], 'L': [31, 16, 16], 'M': [31, 2, 31], 
-    'N': [31, 12, 31], 'O': [14, 17, 14], 'P': [31, 5, 2], 'R': [31, 5, 26], 'S': [18, 21, 9], 
-    'T': [1, 31, 1], 'U': [15, 16, 15], 'V': [7, 24, 7], 'W': [31, 8, 31], 'Y': [3, 28, 3],
-    '<': [4, 10, 17], '>': [17, 10, 4], '-': [4, 4, 4], '.': [0, 16, 0]
+    ' ': [0,0,0], '!': [0, 23, 0], '"': [3, 0, 3], '#': [31, 10, 31],
+    '$': [18, 31, 9], '%': [28, 4, 7], '&': [21, 21, 14], '\'': [0, 3, 0],
+    '(': [0, 14, 17], ')': [17, 14, 0], '*': [10, 4, 10], '+': [4, 14, 4],
+    ',': [0, 24, 0], '-': [4, 4, 4], '.': [0, 16, 0], '/': [24, 4, 3],
+    '0': [31, 17, 31], '1': [0, 31, 0], '2': [29, 21, 23], '3': [21, 21, 31],
+    '4': [7, 4, 31], '5': [23, 21, 29], '6': [31, 21, 29], '7': [1, 1, 31],
+    '8': [31, 21, 31], '9': [23, 21, 31], ':': [0, 10, 0], ';': [0, 26, 0],
+    '<': [4, 10, 17], '=': [10, 10, 10], '>': [17, 10, 4], '?': [1, 21, 7],
+    '@': [14, 21, 22], 'A': [30, 5, 30], 'B': [31, 21, 10], 'C': [14, 17, 17],
+    'D': [31, 17, 14], 'E': [31, 21, 21], 'F': [31, 5, 5], 'G': [14, 21, 29],
+    'H': [31, 4, 31], 'I': [17, 31, 17], 'J': [8, 16, 15], 'K': [31, 4, 27],
+    'L': [31, 16, 16], 'M': [31, 2, 31], 'N': [31, 2, 28], 'O': [14, 17, 14],
+    'P': [31, 5, 2], 'Q': [14, 17, 30], 'R': [31, 5, 26], 'S': [18, 21, 9],
+    'T': [1, 31, 1], 'U': [15, 16, 15], 'V': [7, 24, 7], 'W': [31, 8, 31],
+    'X': [27, 4, 27], 'Y': [3, 28, 3], 'Z': [25, 21, 19], '[': [31, 17, 0],
+    '\\': [3, 4, 24], ']': [0, 17, 31], '^': [2, 1, 2], '_': [16, 16, 16],
+    '`': [0, 1, 2], 'a': [10, 21, 31], 'b': [31, 20, 8], 'c': [14, 17, 17],
+    'd': [8, 20, 31], 'e': [14, 21, 21], 'f': [4, 31, 5], 'g': [18, 21, 15],
+    'h': [31, 4, 24], 'i': [0, 29, 0], 'j': [16, 16, 13], 'k': [31, 4, 27],
+    'l': [0, 31, 0], 'm': [30, 2, 30], 'n': [28, 4, 24], 'o': [14, 17, 14],
+    'p': [31, 5, 2], 'q': [2, 5, 31], 'r': [28, 4, 4], 's': [18, 21, 9],
+    't': [4, 31, 20], 'u': [15, 16, 15], 'v': [7, 24, 7], 'w': [31, 8, 31],
+    'x': [27, 4, 27], 'y': [3, 28, 31], 'z': [25, 21, 19], '{': [4, 27, 17],
+    '|': [0, 31, 0], '}': [17, 27, 4], '~': [2, 1, 2]
 }
 
 # --- THIN 4x7 FONT (For Countdown & Scoreboard) ---
@@ -42,6 +58,27 @@ FONT_4x7 = {
 }
 
 class MazeGenerator:
+    @staticmethod
+    def generate_full_boot_maze():
+        w, h = 16, 32
+        grid = [[1 for _ in range(w)] for _ in range(h)]
+        stack = [(0, 0)]
+        grid[0][0] = 0
+        while stack:
+            cx, cy = stack[-1]
+            nbs = []
+            for nx, ny in [(cx-2, cy), (cx+2, cy), (cx, cy-2), (cx, cy+2)]:
+                if 0 <= nx < w and 0 <= ny < h and grid[ny][nx] == 1:
+                    nbs.append((nx, ny))
+            if nbs:
+                nx, ny = random.choice(nbs)
+                grid[ny][nx] = 0
+                grid[(cy+ny)//2][(cx+nx)//2] = 0
+                stack.append((nx, ny))
+            else:
+                stack.pop()
+        return grid
+
     @staticmethod
     def generate():
         grid = [[1 for _ in range(MAZE_SIZE)] for _ in range(MAZE_SIZE)]
@@ -95,6 +132,10 @@ class PlayerState:
         self.reveal_timer = 0
         self.tuto_path = []
         
+        # Anti-Cheat Reset Variables
+        self.is_resetting = False
+        self.reset_timer = 0
+        
     def reset_round(self):
         self.lives = MAX_LIVES
         self.is_stunned = False
@@ -102,6 +143,8 @@ class PlayerState:
         self.visited.clear()
         self.powerup_active = True
         self.reveal_timer = 0
+        self.is_resetting = False
+        self.reset_timer = 0
 
 
 class FogRunGame:
@@ -112,11 +155,11 @@ class FogRunGame:
         self.p2 = PlayerState(offset_y=17)  
         self.is_tutorial = False
         self.last_winner = None
+        self.boot_maze = MazeGenerator.generate_full_boot_maze()
         
         self.ripples = [] 
         self.last_touches = set()
         
-        # Generate mazes right away for the boot animation
         self.generate_new_round()
         self.state = 'BOOT_ANIM'
         self.state_timer = time.time()
@@ -127,12 +170,24 @@ class FogRunGame:
             m, s, f, pu = MazeGenerator.generate()
             p.maze, p.start_pos, p.finish_pos, p.powerup_pos = m, s, f, pu
             p.last_pos = s
-            p.tuto_path = self._build_tuto_path(m, s, pu, f)
             p.reset_round()
+
+        p1_path = self._build_tuto_path(self.p1.maze, self.p1.start_pos, self.p1.powerup_pos, self.p1.finish_pos)
+        p2_path = self._build_tuto_path(self.p2.maze, self.p2.start_pos, self.p2.powerup_pos, self.p2.finish_pos)
+        
+        p1_pre = p1_path[:-1]
+        p2_pre = p2_path[:-1]
+        max_len = max(len(p1_pre), len(p2_pre))
+        
+        p1_pre.extend([p1_pre[-1]] * (max_len - len(p1_pre) + 10))
+        p2_pre.extend([p2_pre[-1]] * (max_len - len(p2_pre)))
+        
+        self.p1.tuto_path = p1_pre + [p1_path[-1]] * 5
+        self.p2.tuto_path = p2_pre + [p2_path[-1]] * 5
 
     def _build_tuto_path(self, maze, start, powerup, finish):
         def bfs(s_n, e_n):
-            q, vis = [[s_n]], set([s_n])
+            q = [[s_n]]; vis = {s_n}
             while q:
                 p = q.pop(0); curr = p[-1]
                 if curr == e_n: return p
@@ -141,25 +196,21 @@ class FogRunGame:
                         vis.add((nx, ny)); q.append(p + [(nx, ny)])
             return [s_n]
             
-        p1 = bfs(start, powerup)
-        p2 = bfs(powerup, finish)
-        valid_path = p1 + p2[1:]
-        
-        final_path = []
+        res = bfs(start, powerup) + bfs(powerup, finish)[1:]
+        final = []
         stun_injected = False
-        for i, node in enumerate(valid_path):
-            final_path.append(node)
+        for i, node in enumerate(res):
+            final.append(node)
             if not stun_injected and i == 4:
                 sx, sy = node
                 for nx, ny in [(sx-1, sy), (sx+1, sy), (sx, sy-1), (sx, sy+1)]:
                     if 0 <= nx < MAZE_SIZE and 0 <= ny < MAZE_SIZE and maze[ny][nx] == 1:
-                        final_path.append((nx, ny)) # Intentionally hit wall
-                        # Stand perfectly still during Stun (12 frames * 0.3s = 3.6s)
-                        final_path.extend([node] * 12) 
+                        final.append((nx, ny)) # Deliberately touch wall
+                        final.extend([node] * 10) # Stand completely still during the stun animation
                         stun_injected = True
                         break
-        for _ in range(5): final_path.append(finish)
-        return final_path
+        for _ in range(5): final.append(finish)
+        return final
 
     def _add_trail(self, player, x1, y1, x2, y2, now):
         player.visited[(x1, y1)] = now
@@ -185,19 +236,12 @@ class FogRunGame:
 
         if self.state == 'TUTO_PLAY':
             t_s = now - self.state_timer
-            # 0.3 seconds per step ensures the tutorial is slow and easy to follow
-            idx1 = min(int(t_s / 0.3), len(self.p1.tuto_path) - 1)
-            idx2 = min(int(t_s / 0.3), len(self.p2.tuto_path) - 1)
+            idx1 = min(int(t_s / 0.4), len(self.p1.tuto_path) - 1)
+            idx2 = min(int(t_s / 0.4), len(self.p2.tuto_path) - 1)
             
             self._handle_player(self.p1, [self.p1.tuto_path[idx1]], now, "P2", is_tuto=True)
+            if self.state != 'TUTO_PLAY': return 
             self._handle_player(self.p2, [self.p2.tuto_path[idx2]], now, "P1", is_tuto=True)
-            
-            if idx1 == len(self.p1.tuto_path) - 1 and idx2 == len(self.p2.tuto_path) - 1:
-                if not hasattr(self, 'tuto_finish_t'): self.tuto_finish_t = now
-                elif now - self.tuto_finish_t > 0.5:
-                    self.last_winner = self.p1
-                    self._transition('WIN_REVEAL', now)
-                    del self.tuto_finish_t
             return
 
         if self.state != 'PLAYING': return
@@ -206,9 +250,28 @@ class FogRunGame:
         p2_touches = [(x - 1, y - 17) for x, y in touches if 1 <= x <= 14 and 17 <= y <= 30]
                 
         self._handle_player(self.p1, p1_touches, now, "P2", is_tuto=False)
+        if self.state != 'PLAYING': return 
         self._handle_player(self.p2, p2_touches, now, "P1", is_tuto=False)
 
-    def _handle_player(self, player, touches, now, opponent_name, is_tuto):
+    def _handle_player(self, player, touches, now, opponent_name, is_tuto=False):
+        
+        # --- Handle Reset from Anti-Cheat Jump ---
+        if player.is_resetting:
+            cleared = False
+            for mx, my in touches:
+                if mx == player.start_pos[0] and my == player.start_pos[1]:
+                    cleared = True
+                    player.is_resetting = False
+                    player.last_pos = (mx, my)
+                    player.visited[(mx, my)] = now
+                    break
+            
+            if not cleared and now - player.reset_timer > 10.0:
+                player.is_resetting = False 
+                
+            if player.is_resetting:
+                return # Ignore all other touches until they step on the start
+
         if player.is_stunned and now - player.stun_timer > STUN_DURATION:
             player.is_stunned = False
             
@@ -216,6 +279,29 @@ class FogRunGame:
             
         for mx, my in touches:
             if not (0 <= mx < MAZE_SIZE and 0 <= my < MAZE_SIZE): continue
+
+            # --- ANTI-CHEAT STRICT ---
+            if not is_tuto:
+                valid_points = list(player.visited.keys()) + [player.start_pos]
+                min_dist = min(max(abs(mx - vx), abs(my - vy)) for vx, vy in valid_points)
+                
+                # If they step more than 1 block away from their existing path (they jumped)
+                if min_dist > 1:
+                    if mx == player.finish_pos[0] and my == player.finish_pos[1]:
+                        # Jumped straight to the finish line! Opponent wins immediately.
+                        print(f"ANTI-CHEAT: {opponent_name} wins. Player jumped to finish!")
+                        self._end_round(winner_name=opponent_name)
+                        return
+                    else:
+                        # Jumped randomly in the maze! Reset their specific maze and punish them.
+                        print("ANTI-CHEAT: Player jumped! Resetting their maze.")
+                        m, s, f, pu = MazeGenerator.generate()
+                        player.maze, player.start_pos, player.finish_pos, player.powerup_pos = m, s, f, pu
+                        player.reset_round()
+                        player.last_pos = s
+                        player.is_resetting = True
+                        player.reset_timer = now
+                        return
                 
             if player.maze[my][mx] == 1:
                 player.is_stunned = True
@@ -235,7 +321,12 @@ class FogRunGame:
                 player.reveal_timer = now
                 
             if mx == player.finish_pos[0] and my == player.finish_pos[1]:
-                if not is_tuto:
+                if is_tuto: 
+                    if getattr(self, 'tuto_won', False) == False: 
+                        self.tuto_won = True
+                        self.last_winner = player
+                        self._transition('WIN_REVEAL', now)
+                else: 
                     winner = "P1" if player == self.p1 else "P2"
                     self._end_round(winner_name=winner)
 
@@ -249,9 +340,10 @@ class FogRunGame:
         self._transition('WIN_REVEAL', time.time())
 
     def _draw_word_wide(self, word, color, center_y_shift=0):
+        # Latimea totala pentru FONT_3x5 este 4 (3 litera + 1 spatiu)
         width = len(word) * 4 - 1
         start_y = (32 - width) // 2
-        start_x_base = 6 + center_y_shift
+        start_x_base = 6 + center_y_shift # Pozitia pe X
         curr_y = start_y
         for char in word.upper():
             if char in FONT_3x5:
@@ -262,15 +354,14 @@ class FogRunGame:
                             phys_y = curr_y + c
                             if 0 <= phys_x < 16 and 0 <= phys_y < 32:
                                 self.engine.set_pixel(phys_x, phys_y, *color)
-                curr_y += 4
+                curr_y += 4 # Spatiu pt urmatoarea litera
             else:
                 curr_y += 4
 
     def _draw_thin_large_text(self, text, center_y, color):
-        """Draws Countdown & Scores perfectly centered, shifted 2 pixels down (closer to user)."""
         width = len(text) * 5 - 1
         start_y = center_y - width // 2
-        start_x_base = 4 # WAS 6. Now moved 2 tiles DOWN (closer to physical X=15 edge)
+        start_x_base = 4 
         curr_y = start_y
         for char in text.upper():
             if char in FONT_4x7:
@@ -315,69 +406,82 @@ class FogRunGame:
         self.engine.clear()
         now = time.time()
         time_in_state = now - self.state_timer
+        WORD_DUR = 3.0 # Words stay for 3 seconds each!
         
         # --- STATE MACHINE FOR SEQUENCES ---
 
         if self.state == 'BOOT_ANIM':
-            # Awesome Labyrinth Construction Animation
-            max_dist = time_in_state * 6.0
-            for p in [self.p1, self.p2]:
-                ox, oy = p.offset_x, p.offset_y
-                for my in range(MAZE_SIZE):
-                    for mx in range(MAZE_SIZE):
-                        d = (mx + my) if p == self.p1 else (mx + (13 - my))
-                        if d < max_dist and p.maze[my][mx] == 1:
-                            self.engine.set_pixel(ox + mx, oy + my, *WALL_COLOR)
-            if time_in_state > 5.0: self._transition('TXT_WATCH', now)
+            max_dist = time_in_state * 20.0 
+            for y in range(32):
+                for x in range(16):
+                    if (x + y) < max_dist:
+                        if self.boot_maze[y][x] == 1:
+                            self.engine.set_pixel(x, y, 0, 100, 0)
+            if time_in_state > 3.0: self._transition('TXT_WATCH', now)
 
         elif self.state == 'TXT_WATCH':
-            self._draw_sliding_text("WATCH THE TUTORIAL", self.WHT, time_in_state, 4.0)
-            if time_in_state > 4.0: 
+            self._draw_word_wide("WATCH", self.WHT)
+            if time_in_state > WORD_DUR: 
                 self.is_tutorial = True
-                self._transition('TXT_TUTO', now)
+                self._transition('TXT_THE_1', now)
+                
+        elif self.state == 'TXT_THE_1':
+            self._draw_word_wide("THE", self.WHT)
+            if time_in_state > WORD_DUR: self._transition('TXT_TUTO', now)
             
         elif self.state == 'TXT_TUTO':
             self._draw_word_wide("TUTORIAL", self.WHT)
-            if time_in_state > 1.5: self._transition('TUTO_PLAY', now)
+            if time_in_state > WORD_DUR: self._transition('TUTO_PLAY', now)
 
         elif self.state == 'TUTO_PLAY':
-            self.process_inputs() 
-            self._render_maze(self.p1, override_full=False)
-            self._render_maze(self.p2, override_full=False)
+            self.process_inputs()
+            t_s = now - self.state_timer
+            idx1 = min(int(t_s / 0.4), len(self.p1.tuto_path) - 1)
+            idx2 = min(int(t_s / 0.4), len(self.p2.tuto_path) - 1)
+            self._render_maze(self.p1, override_full=False, tuto_tchs=[self.p1.tuto_path[idx1]])
+            self._render_maze(self.p2, override_full=False, tuto_tchs=[self.p2.tuto_path[idx2]])
 
-        # Word by Word Fast Transition (0.8s each)
         elif self.state == 'TXT_ARE':
             self._draw_word_wide("ARE", self.WHT); 
-            if time_in_state > 0.8: self._transition('TXT_YOU', now)
+            if time_in_state > WORD_DUR: self._transition('TXT_YOU', now)
         elif self.state == 'TXT_YOU':
             self._draw_word_wide("YOU", self.WHT); 
-            if time_in_state > 0.8: self._transition('TXT_READY', now)
+            if time_in_state > WORD_DUR: self._transition('TXT_READY', now)
         elif self.state == 'TXT_READY':
-            self._draw_word_wide("READY?", self.WHT); 
-            if time_in_state > 0.8: self._transition('TXT_FIND', now)
+            self._draw_word_wide("READY", self.WHT); 
+            if time_in_state > WORD_DUR: self._transition('TXT_FIND', now)
         elif self.state == 'TXT_FIND':
             self._draw_word_wide("FIND", self.WHT); 
-            if time_in_state > 0.8: self._transition('TXT_THE', now)
-        elif self.state == 'TXT_THE':
+            if time_in_state > WORD_DUR: self._transition('TXT_THE_2', now)
+        elif self.state == 'TXT_THE_2':
             self._draw_word_wide("THE", self.WHT); 
-            if time_in_state > 0.8: self._transition('TXT_END', now)
+            if time_in_state > WORD_DUR: self._transition('TXT_END', now)
         elif self.state == 'TXT_END':
             self._draw_word_wide("END", self.WHT); 
-            if time_in_state > 0.8: self._transition('TXT_PICK', now)
-            
-        elif self.state == 'TXT_PICK':
-            self._draw_sliding_text("CHOOSE YOUR COLOUR", self.WHT, time_in_state, 3.5)
-            if time_in_state > 3.5: 
+            if time_in_state > WORD_DUR: self._transition('TXT_CHOOSE', now)
+        elif self.state == 'TXT_CHOOSE':
+            self._draw_word_wide("CHOOSE", self.WHT); 
+            if time_in_state > WORD_DUR: self._transition('TXT_YOUR_1', now)
+        elif self.state == 'TXT_YOUR_1':
+            self._draw_word_wide("YOUR", self.WHT); 
+            if time_in_state > WORD_DUR: self._transition('TXT_COLOUR', now)
+        elif self.state == 'TXT_COLOUR':
+            self._draw_word_wide("COLOUR", self.WHT); 
+            if time_in_state > WORD_DUR: 
                 self.generate_new_round()
                 self._transition('PICK_FULL', now)
                 
         elif self.state == 'PICK_FULL':
-            self._draw_rect(self.p1.offset_x, self.p1.offset_y, 14, 14, P1_COLOR)
-            self._draw_rect(self.p2.offset_x, self.p2.offset_y, 14, 14, P2_COLOR)
+            freq = 0.5 + (time_in_state / 5.0) * 1.5
+            pulse = (math.sin(time_in_state * freq * math.pi * 2) + 1) / 2
+            c1 = [int(x * (0.2 + 0.4 * pulse)) for x in P1_COLOR] 
+            c2 = [int(x * (0.2 + 0.4 * pulse)) for x in P2_COLOR]
+            self._draw_rect(self.p1.offset_x, self.p1.offset_y, 14, 14, c1)
+            self._draw_rect(self.p2.offset_x, self.p2.offset_y, 14, 14, c2)
             if time_in_state > 5.0: self._transition('PICK_SHRINK', now)
 
         elif self.state == 'PICK_SHRINK':
-            progress = time_in_state / 2.0
+            progress = time_in_state / 3.5
             max_dist = 20 * (1.0 - progress) 
             for p, c in [(self.p1, P1_COLOR), (self.p2, P2_COLOR)]:
                 cx, cy = p.offset_x + p.start_pos[0], p.offset_y + p.start_pos[1]
@@ -387,26 +491,31 @@ class FogRunGame:
                         dist = math.hypot(px - cx, py - cy)
                         in_start_zone = abs(mx - p.start_pos[0]) <= 1 and abs(my - p.start_pos[1]) <= 1
                         if in_start_zone or dist < max_dist:
-                            self.engine.set_pixel(px, py, *c)
-            if time_in_state > 2.0: self._transition('SPLIT', now)
-
-        elif self.state == 'SPLIT':
-            # Maze revealed from center outwards
-            expand = int(time_in_state * 10) 
-            for p in [self.p1, self.p2]:
-                ox, oy = p.offset_x, p.offset_y
-                for my in range(MAZE_SIZE):
-                    d_center = (13 - my) if p == self.p1 else my
-                    if d_center < expand:
-                        for mx in range(MAZE_SIZE):
-                            if p.maze[my][mx] == 1:
-                                self.engine.set_pixel(ox+mx, oy+my, *WALL_COLOR)
-            if time_in_state > 1.5: self._transition('SHOW_MAZE', now)
+                            self.engine.set_pixel(px, py, c[0]//3, c[1]//3, c[2]//3)
+            if time_in_state > 3.5: self._transition('GO_TO_START', now)
             
-        elif self.state == 'SHOW_MAZE':
-            self._render_maze(self.p1, override_full=True)
-            self._render_maze(self.p2, override_full=True)
-            if time_in_state > 3.0: self._transition('COUNT_5', now)
+        elif self.state == 'GO_TO_START':
+            freq = 0.5 + (time_in_state / 5.0) * 1.5
+            pulse = (math.sin(time_in_state * freq * math.pi * 2) + 1) / 2
+            c1 = [int(x * (0.3 + 0.5 * pulse)) for x in P1_COLOR]
+            c2 = [int(x * (0.3 + 0.5 * pulse)) for x in P2_COLOR]
+            
+            for p, c in [(self.p1, c1), (self.p2, c2)]:
+                ox, oy = p.offset_x, p.offset_y
+                sx, sy = p.start_pos
+                for my in range(sy - 1, sy + 2):
+                    for mx in range(sx - 1, sx + 2):
+                        if 0 <= mx < 14 and 0 <= my < 14:
+                            self.engine.set_pixel(ox + mx, oy + my, *c)
+                            
+            if time_in_state > 5.0: self._transition('TXT_GET', now)
+
+        elif self.state == 'TXT_GET':
+            self._draw_word_wide("GET", self.WHT); 
+            if time_in_state > WORD_DUR: self._transition('TXT_READY_P', now)
+        elif self.state == 'TXT_READY_P':
+            self._draw_word_wide("READY", self.WHT); 
+            if time_in_state > WORD_DUR: self._transition('COUNT_5', now)
 
         # --- COUNTDOWN & PLAYING ---
         elif self.state.startswith('COUNT_') or self.state == 'PLAYING':
@@ -415,7 +524,6 @@ class FogRunGame:
                 self._render_start_zone(self.p1)
                 self._render_start_zone(self.p2)
                 
-                # Centered Countdown in 14x14
                 if val == 'GO':
                     self._draw_thin_large_text("GO", 8, P1_COLOR)
                     self._draw_thin_large_text("GO", 24, P2_COLOR)
@@ -442,7 +550,6 @@ class FogRunGame:
             win_color = P1_COLOR if self.last_winner == self.p1 else P2_COLOR
             winner = self.last_winner if self.last_winner else self.p1
             
-            # NO PERIMETERS. Just the wave on top of the static maze.
             self._render_maze_static(self.p1)
             self._render_maze_static(self.p2)
             
@@ -454,63 +561,73 @@ class FogRunGame:
                     dist = math.hypot(x-cx, y-cy)
                     if dist < max_r:
                         p = (math.sin(dist * 0.4 - time_in_state * 6) + 1) / 2
-                        self.engine.set_pixel(x, y, *[int(c*(0.2+0.8*p)) for c in win_color])
+                        self.engine.set_pixel(x, y, *[int(c*(0.1+0.5*p)) for c in win_color])
                             
-            if time_in_state > 3.0: 
+            if time_in_state > 4.0: 
                 if self.is_tutorial:
                     self.is_tutorial = False
                     self.p1.score = 0 
+                    self.p2.score = 0
+                    if hasattr(self, 'tuto_won'): del self.tuto_won
                     self._transition('TXT_ARE', now)
                 else:
                     self._transition('TXT_WINNER', now)
                 
         elif self.state == 'TXT_WINNER':
             self._draw_word_wide("WINNER", self.WHT)
-            if time_in_state > 1.2: self._transition('TXT_IS', now)
+            if time_in_state > WORD_DUR: self._transition('TXT_IS', now)
 
         elif self.state == 'TXT_IS':
             self._draw_word_wide("IS", self.WHT)
-            if time_in_state > 1.0: self._transition('WIN_COLOR_SHOW', now)
+            if time_in_state > WORD_DUR: self._transition('WIN_COLOR_SHOW', now)
 
         elif self.state == 'WIN_COLOR_SHOW':
             win_color = P1_COLOR if self.last_winner == self.p1 else P2_COLOR
             for y in range(32):
                 for x in range(16):
                     dist = math.sqrt((x-8)**2 + (y-16)**2)
-                    brightness = int(150 + 105 * math.sin(dist - time_in_state * 10))
+                    brightness = int(100 + 80 * math.sin(dist - time_in_state * 8)) 
                     f_col = (int(win_color[0]*brightness/255), int(win_color[1]*brightness/255), int(win_color[2]*brightness/255))
                     self.engine.set_pixel(x, y, *f_col)
 
-            if time_in_state > 3.0: self._transition('TXT_NEW', now)
+            if time_in_state > 4.0: self._transition('TXT_NEW', now)
             
         elif self.state == 'TXT_NEW':
             self._draw_word_wide("NEW", self.WHT)
-            if time_in_state > 0.8: self._transition('TXT_SCORE', now)
+            if time_in_state > WORD_DUR: self._transition('TXT_SCORE', now)
 
         elif self.state == 'TXT_SCORE':
             self._draw_word_wide("SCORE", self.WHT)
-            if time_in_state > 0.8: self._transition('TXT_IS2', now)
+            if time_in_state > WORD_DUR: self._transition('TXT_IS2', now)
 
         elif self.state == 'TXT_IS2':
             self._draw_word_wide("IS", self.WHT)
-            if time_in_state > 0.8: self._transition('SHOW_SCORE', now)
+            if time_in_state > WORD_DUR: self._transition('SHOW_SCORE', now)
 
         elif self.state == 'SHOW_SCORE':
             self._draw_thin_large_text(str(self.p1.score), 10, P1_COLOR)
             self._draw_thin_large_text("-", 16, self.WHT)
             self._draw_thin_large_text(str(self.p2.score), 22, P2_COLOR)
-            if time_in_state > 4.0: self._transition('TXT_BREAK', now)
+            if time_in_state > 5.0: self._transition('TXT_TAKE', now)
 
+        elif self.state == 'TXT_TAKE':
+            self._draw_word_wide("TAKE", self.WHT)
+            if time_in_state > WORD_DUR: self._transition('TXT_A', now)
+            
+        elif self.state == 'TXT_A':
+            self._draw_word_wide("A", self.WHT)
+            if time_in_state > WORD_DUR: self._transition('TXT_BREAK', now)
+            
         elif self.state == 'TXT_BREAK':
-            self._draw_sliding_text("TAKE A BREAK", self.WHT, time_in_state, 4.0)
-            if time_in_state > 4.0: 
+            self._draw_word_wide("BREAK", self.WHT)
+            if time_in_state > WORD_DUR: 
                 self._transition('INTERACTIVE_BREAK', now)
                 self.ripples.clear()
                 self.last_touches = set(self.engine.get_touches())
                 
         elif self.state == 'INTERACTIVE_BREAK':
             win_color = P1_COLOR if self.last_winner == self.p1 else P2_COLOR
-            dim_win = (win_color[0]//5, win_color[1]//5, win_color[2]//5) 
+            dim_win = (win_color[0]//8, win_color[1]//8, win_color[2]//8) 
             
             progress = (time_in_state / 15.0) * 48
             for y in range(32):
@@ -520,10 +637,10 @@ class FogRunGame:
                         
             for rx, ry, rc, rstart in self.ripples:
                 rage = now - rstart
-                radius = rage * 15.0 
-                if rage > 2.0: continue
-                fade = max(0, 1.0 - (rage / 2.0))
-                col = (int(rc[0]*fade), int(rc[1]*fade), int(rc[2]*fade))
+                radius = rage * 10.0 
+                if rage > 3.0: continue
+                fade = max(0, 1.0 - (rage / 3.0))
+                col = (int(rc[0]*fade*0.7), int(rc[1]*fade*0.7), int(rc[2]*fade*0.7))
                 for y in range(32):
                     for x in range(16):
                         dist = math.hypot(x-rx, y-ry)
@@ -532,42 +649,44 @@ class FogRunGame:
 
             if time_in_state > 15.0:
                 if self.p1.score >= MAX_WINS or self.p2.score >= MAX_WINS: self._transition('GAME_OVER', now)
-                else: self._transition('TXT_GET', now)
+                else: self._transition('TXT_STAY', now)
 
-        elif self.state == 'TXT_GET':
-            self._draw_word_wide("GET", self.WHT); 
-            if time_in_state > 0.8: self._transition('TXT_READY_P', now)
-        elif self.state == 'TXT_READY_P':
-            self._draw_word_wide("READY", self.WHT); 
-            if time_in_state > 0.8: self._transition('TXT_STAY', now)
         elif self.state == 'TXT_STAY':
-            self._draw_word_wide("STAY", self.WHT); 
-            if time_in_state > 0.8: self._transition('TXT_ON', now)
+            self._draw_word_wide("STAY", self.WHT)
+            if time_in_state > WORD_DUR: self._transition('TXT_ON', now)
+            
         elif self.state == 'TXT_ON':
-            self._draw_word_wide("ON", self.WHT); 
-            if time_in_state > 0.8: self._transition('TXT_YOUR', now)
-        elif self.state == 'TXT_YOUR':
-            self._draw_word_wide("YOUR", self.WHT); 
-            if time_in_state > 0.8: self._transition('TXT_SIDE_P', now)
+            self._draw_word_wide("ON", self.WHT)
+            if time_in_state > WORD_DUR: self._transition('TXT_YOUR_2', now)
+            
+        elif self.state == 'TXT_YOUR_2':
+            self._draw_word_wide("YOUR", self.WHT)
+            if time_in_state > WORD_DUR: self._transition('TXT_SIDE_P', now)
+            
         elif self.state == 'TXT_SIDE_P':
-            self._draw_word_wide("SIDE", self.WHT); 
-            if time_in_state > 0.8:
+            self._draw_word_wide("SIDE", self.WHT)
+            if time_in_state > WORD_DUR: 
                 self.generate_new_round()
-                self._transition('SHOW_MAZE', now)
+                self._transition('GO_TO_START', now)
 
         elif self.state == 'GAME_OVER':
-            win_c = P1_COLOR if self.p1.score > self.p2.score else P2_COLOR
-            breath = int(50 + 100 * ((math.sin(now * 2) + 1) / 2))
+            win_color = P1_COLOR if self.p1.score > self.p2.score else P2_COLOR
+            breath = int(50 + 80 * ((math.sin(now * 1.5) + 1) / 2)) 
             for y in range(32):
                 for x in range(16):
-                    self.engine.set_pixel(x, y, int(win_c[0]*breath/255), int(win_c[1]*breath/255), int(win_c[2]*breath/255))
+                    self.engine.set_pixel(x, y, int(win_color[0]*breath/255), int(win_color[1]*breath/255), int(win_color[2]*breath/255))
             for _ in range(5): 
                 self.engine.set_pixel(random.randint(1,14), random.randint(1,30), 255, 255, 255)
             self._draw_word_wide("OVERALL", self.WHT, -4)
             self._draw_word_wide("WINNER!", self.WHT, 4)
 
-        # Draw Perimeters ONLY in active gameplay logic, NOT during Win Wave
-        draw_perim_states = ['SHOW_MAZE', 'PLAYING', 'TUTO_PLAY', 'PICK_SHRINK', 'WIN_REVEAL']
+        # Desenam gardul verde in permanenta, cu exceptia animatiilor full-screen
+        draw_perim_states = [
+            'TUTO_PLAY', 
+            'PICK_FULL', 'PICK_SHRINK', 'GO_TO_START', 
+            'SPLIT', 'SHOW_MAZE', 'PLAYING', 'WIN_REVEAL'
+        ]
+        
         if self.state in draw_perim_states or self.state.startswith('COUNT_'):
             self._draw_perimeters()
 
@@ -576,14 +695,13 @@ class FogRunGame:
         self.state_timer = time_now
 
     def _draw_heart_centered(self, cx, cy, color):
-        """Draws the perfectly centered heart with Base of 2 pointing to User (X=0)."""
         pixels = [
             (2, -2), (2, -1),         (2, 2), (2, 3),
             (1, -3), (1, -2), (1, -1), (1, 0), (1, 1), (1, 2), (1, 3), (1, 4),
             (0, -3),  (0, -2),  (0, -1),  (0, 0),  (0, 1),  (0, 2),  (0, 3),  (0, 4),
             (-1, -2),  (-1, -1),  (-1, 0),   (-1, 1),  (-1, 2),  (-1, 3),
             (-2, -1),  (-2, 0),   (-2, 1),   (-2, 2),
-            (-3, 0),   (-3, 1)  # TIP / BASE OF 2 pointing toward physical X=0
+            (-3, 0),   (-3, 1)  
         ]
         for dx, dy in pixels:
             if 0 <= cx+dx < 16 and 0 <= cy+dy < 32:
@@ -598,38 +716,46 @@ class FogRunGame:
                 elif player.maze[my][mx] == 1: self.engine.set_pixel(ox + mx, oy + my, *WALL_COLOR)
                 else: self.engine.set_pixel(ox + mx, oy + my, *(P1_TRAIL if player == self.p1 else P2_TRAIL))
         
-        pulse = int(150 + 105 * ((math.sin(time.time() * 5) + 1) / 2))
+        pulse = int(100 + 80 * ((math.sin(time.time() * 3) + 1) / 2)) 
         self.engine.set_pixel(ox + sx, oy + sy, pulse, pulse, 0)
 
-    def _render_maze(self, player, override_full=False):
+    def _render_maze(self, player, override_full=False, tuto_tchs=None):
         ox, oy = player.offset_x, player.offset_y
         now = time.time()
         
+        if player.is_resetting:
+            self._draw_rect(ox, oy, 14, 14, (0, 0, 0))
+            self._render_start_zone(player)
+            return
+
         if player.is_stunned:
             t_stun = now - player.stun_timer
             self._draw_rect(ox, oy, 14, 14, (0, 0, 0)) 
             heart_cx, heart_cy = 8, oy + 6 
             
             if t_stun < 2.0:
-                blink = int((math.sin(t_stun * 15) + 1) / 2 * 255)
+                blink = int((math.sin(t_stun * 10) + 1) / 2 * 200) 
                 self._draw_heart_centered(heart_cx, heart_cy, (blink, 0, 0))
             else:
-                fade = max(0, 255 - int(((t_stun - 2.0) / 1.5) * 255))
+                fade = max(0, 200 - int(((t_stun - 2.0) / 1.5) * 200))
                 self._draw_heart_centered(heart_cx, heart_cy, (fade, 0, 0))
             return
 
         if now - player.reveal_timer < 1.5: override_full = True
 
-        touches = self.engine.get_touches()
-        p_touches = [(x - ox, y - oy) for x, y in touches if ox <= x < ox + 14 and oy <= y < oy + 14]
-        if not p_touches and player.last_pos: p_touches = [player.last_pos]
+        if tuto_tchs is not None:
+            tchs = tuto_tchs
+        else:
+            touches = self.engine.get_touches()
+            tchs = [(x - ox, y - oy) for x, y in touches if ox <= x < ox + 14 and oy <= y < oy + 14]
+            if not tchs and player.last_pos: tchs = [player.last_pos]
 
         for my in range(MAZE_SIZE):
             for mx in range(MAZE_SIZE):
                 is_visible = override_full 
                 
                 if not is_visible:
-                    for px, py in p_touches:
+                    for px, py in tchs:
                         if abs(mx - px) <= 1 and abs(my - py) <= 1:
                             is_visible = True
                             break
@@ -639,10 +765,10 @@ class FogRunGame:
                 
                 if is_visible or is_finish:
                     if is_finish:
-                        p_val = int(150 + 105 * math.sin(now * 3))
+                        p_val = int(100 + 80 * math.sin(now * 3))
                         self.engine.set_pixel(ox + mx, oy + my, p_val, p_val, 0) 
                     elif is_powerup:
-                        p_val = int(100 + 155 * ((math.sin(now * 10) + 1) / 2))
+                        p_val = int(80 + 100 * ((math.sin(now * 6) + 1) / 2))
                         self.engine.set_pixel(ox + mx, oy + my, 0, p_val//2, p_val) 
                     elif player.maze[my][mx] == 1: 
                         self.engine.set_pixel(ox + mx, oy + my, *WALL_COLOR)
