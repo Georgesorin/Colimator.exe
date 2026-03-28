@@ -1,9 +1,11 @@
 """
-RAY WARS - HOMING EDITION (V2)
-══════════════════════════════
+RAY WARS - eSPORTS EDITION (Best of 5)
+══════════════════════════════════════
 16x32 LED matrix game. Two teams fight across a 2-row dividing line.
-Rays now actively track opponents ahead, but with a sharp 3:1 forward-to-lateral ratio.
-Original hearts display restored.
+Rays actively track opponents ahead, but with a sharp 3:1 forward-to-lateral ratio.
+Features: Configurable players, speed presets, max 2 *charging* rays/player, anti-camping, 
+          dynamic health bar, ray fade effects, charge-up glow, Best-of-5 Match System,
+          and VORTEX SHOCKWAVE round-end animation (White Text)!
 """
 
 import socket
@@ -13,6 +15,7 @@ import random
 import json
 import os
 import sys
+import math
 
 # ==============================================================================
 # --- Fix Pathing for local imports ---
@@ -74,12 +77,18 @@ BOARD_WIDTH = 16
 BOARD_HEIGHT = 32
 
 # --- Game Rules ---
-MAX_HEARTS = 5
-CHARGE_TIME = 1.0     
-RAY_LENGTH = 4        # Coada razei vizibila pe ecran
-START_SPEED = 0.08    
-HOMING_RATIO = 3      # Pași înainte necesari pentru 1 pas lateral
+CHARGE_TIME = 0.67     
+RAY_LENGTH = 4        
+HOMING_RATIO = 4      
 
+# Speed presets — (ray_speed_start, ray_speed_min, accel_interval, accel_step)
+SPEED_PRESETS = {
+    "slow":   (0.28, 0.08, 10.0, 0.02),
+    "medium": (0.20, 0.04,  6.7, 0.02),
+    "fast":   (0.12, 0.02,  4.0, 0.02),
+}
+
+# --- Colors (R, G, B) ---
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 DIVIDER_COLOR = (50, 50, 50)
@@ -88,42 +97,93 @@ TEAM_B_COLOR = (0, 0, 255)
 HEART_COLOR = (255, 20, 147) 
 EXPLOSION_COLOR = (255, 255, 0) 
 
+def _dim(color, f):
+    return tuple(max(0, min(255, int(c * f))) for c in color)
+
 class RayWarsGame:
+    # --- Vortex Animation Tweakables ---
+    VORTEX_ROTATION_SPEED = 12.0 # Cat de repede se invarte (rad/s)
+    VORTEX_TIGHTNESS = 1.3      # Cat de stransa e spirala (frecventa spatiala)
+    VORTEX_EXPANSION_SPEED = 18.0 # Viteza cu care creste raza maxima (pixeli/s)
+    VORTEX_ARM_THICKNESS = 0.8  # Grosimea bratelor (sin wave sharpening)
+
     def __init__(self):
         self.button_states = [[False for _ in range(BOARD_WIDTH)] for _ in range(BOARD_HEIGHT)]
         self.running = True
         self.state = 'LOBBY' 
         
-        self.hearts = [MAX_HEARTS, MAX_HEARTS] 
+        self.max_health = 2
+        self.hearts = [self.max_health, self.max_health] 
         self.rays = []
         self.active_tiles = set()
         self.charge_timers = {}
+        self.exhausted_tiles = set() 
         self.hit_explosions = []
+        
+        self.score = [0, 0] # Team A (Red), Team B (Blue)
+        self.score_timer = 0
         
         self.start_time = 0
         self.last_ray_step = 0
-        self.ray_speed = START_SPEED
+        self.ray_speed = 0.20
         self.gameover_text = ""
         self.gameover_timer = 0
+        
+        # Vortex state
+        self.last_hit_coords = (8, 16) 
+        self.vortex_color = WHITE
+        
+        self.players_a = 1
+        self.players_b = 1
+        self.speed_preset = "medium"
         
         self.lock = threading.RLock()
         self.sounds = sounds
 
-    def start_game(self):
+    def start_game(self, p_a, p_b, speed):
         with self.lock:
+            self.players_a = p_a
+            self.players_b = p_b
+            self.speed_preset = speed
+            self.score = [0, 0] # Resetam scorul meciului
+            
+            print(f"\n[!] MATCH STARTED! Best of 5! (Speed: {speed.upper()} | {p_a} vs {p_b})")
+            self.start_round()
+
+    def start_round(self):
+        with self.lock:
+            self.max_health = 2 * max(self.players_a, self.players_b)
+            self.hearts = [self.max_health, self.max_health]
+            
             self.state = 'STARTUP'
-            self.hearts = [MAX_HEARTS, MAX_HEARTS]
             self.rays.clear()
             self.charge_timers.clear()
+            self.exhausted_tiles.clear()
             self.hit_explosions.clear()
             self.start_time = time.time()
-            print("RAY WARS - PREPARE TO FIGHT!")
+            
+            self.r_start, self.r_min, self.r_interval, self.r_step = SPEED_PRESETS[self.speed_preset]
+            self.ray_speed = self.r_start
+            
+            print(f"-> ROUND STARTING... Score: {self.score[0]} - {self.score[1]}")
 
-    def end_game(self, text):
-        self.state = 'GAMEOVER'
-        self.gameover_text = text
+    def end_round(self, winner_team):
+        self.score[winner_team] += 1
         self.gameover_timer = time.time()
-        print(f"\n[!] {text}")
+        team_name = "ROSU" if winner_team == 0 else "ALBASTRU"
+        
+        # Pregatim animatia VORTEX
+        self.vortex_color = TEAM_A_COLOR if winner_team == 0 else TEAM_B_COLOR
+
+        if self.score[winner_team] >= 3:
+            self.state = 'MATCH_OVER'
+            self.gameover_text = f"{team_name} CASTIGA MECIUL !!!"
+            print(f"\n[!!!] {self.gameover_text} [!!!]")
+        else:
+            self.state = 'GAMEOVER'
+            # self.gameover_text = f"{team_name} WINS ROUND!"
+            print(f"\n[!] {self.gameover_text}")
+            
         if self.sounds and 'gameover' in self.sounds:
             self.sounds['gameover'].play()
 
@@ -138,42 +198,68 @@ class RayWarsGame:
                     self.start_time = now
                     self.last_ray_step = now
                 return
+                
             elif self.state == 'GAMEOVER':
+                txt_len = len(self.gameover_text) * 4
+                scroll_speed = 12
+                total_dist = BOARD_HEIGHT + txt_len
+                scroll_duration = total_dist / scroll_speed
+                
+                if now - self.gameover_timer >= scroll_duration:
+                    self.state = 'SHOW_SCORE'
+                    self.score_timer = now
+                return
+                
+            elif self.state == 'SHOW_SCORE':
+                if now - self.score_timer >= 2.5:
+                    self.start_round() 
+                return
+                
+            elif self.state == 'MATCH_OVER':
                 return
 
-            # Update active tiles from current buttons
-            self.active_tiles.clear()
+            charging_a = sum(1 for (cx, cy) in self.charge_timers if cy <= 14)
+            charging_b = sum(1 for (cx, cy) in self.charge_timers if cy > 14)
+
+            current_active = set()
             for y in range(BOARD_HEIGHT):
                 if y in (15, 16): continue
                 for x in range(BOARD_WIDTH):
                     if self.button_states[y][x]:
-                        self.active_tiles.add((x, y))
-                        if (x, y) not in self.charge_timers:
-                            self.charge_timers[(x, y)] = now
+                        current_active.add((x, y))
+                        
+                        if (x, y) not in self.charge_timers and (x, y) not in self.exhausted_tiles:
+                            team = 0 if y <= 14 else 1
+                            max_allowed = (self.players_a * 2) if team == 0 else (self.players_b * 2)
+                            current_charging = charging_a if team == 0 else charging_b
+                            
+                            if current_charging < max_allowed:
+                                self.charge_timers[(x, y)] = now
+                                if team == 0: charging_a += 1
+                                else: charging_b += 1
+                    else:
+                        if (x, y) in self.exhausted_tiles:
+                            self.exhausted_tiles.remove((x, y))
 
+            self.active_tiles = current_active
             self.hit_explosions = [e for e in self.hit_explosions if now - e["time"] < 0.35]
 
             elapsed = now - self.start_time
-            self.ray_speed = max(0.02, START_SPEED - (elapsed * 0.0005))
+            intervals_passed = int(elapsed / self.r_interval)
+            self.ray_speed = max(self.r_min, self.r_start - (intervals_passed * self.r_step))
 
-            # --- PROCESS RAYS (HOMING LOGIC 3:1) ---
             if now - self.last_ray_step > self.ray_speed:
                 self.last_ray_step = now
                 to_remove = []
                 
                 for r in self.rays:
-                    # Coordonatele curente ale 'capului' razei
                     hx, hy = r["path"][-1]
-                    
-                    # Cautam cea mai apropiata tinta valida
                     best_target = None
                     min_dist = 9999
                     
                     for (tx, ty) in self.active_tiles:
                         if r["team"] == 0 and ty < 17: continue
                         if r["team"] == 1 and ty > 14: continue
-                        
-                        # HOMING RULE 1: Ignora daca tinta e la acelasi nivel sau in spate
                         if (ty - hy) * r["dir"] <= 0: continue
                         
                         dist = abs(tx - hx) + abs(ty - hy)
@@ -181,7 +267,6 @@ class RayWarsGame:
                             min_dist = dist
                             best_target = (tx, ty)
                     
-                    # Determinam directia laterala dorita
                     desired_dx = 0
                     if best_target:
                         tx, ty = best_target
@@ -189,62 +274,51 @@ class RayWarsGame:
                         elif tx < hx: desired_dx = -1
                     
                     next_x = hx
-                    # HOMING RULE 3: Avanseaza intotdeauna inainte pe Y
                     next_y = hy + r["dir"]
 
-                    # --- Implementare LOGICA 3:1 ---
-                    # Incremetam contorul de pasi facuti drept
                     r["steps_straight"] += 1
-
-                    # Dacă am făcut 3 pași drept, putem face 1 pas lateral (dacă e nevoie)
                     if r["steps_straight"] >= HOMING_RATIO:
                         next_x += desired_dx
-                        # Resetăm contorul doar dacă am virat (ca să nu piardă "virajul" dacă ținta e departe)
-                        if desired_dx != 0:
-                            r["steps_straight"] = 0
-                        else:
-                            # Dacă nu e nevoie să vireze, păstrăm contorul la prag ca să poată vira imediat turul următor
-                            r["steps_straight"] = HOMING_RATIO
+                        if desired_dx != 0: r["steps_straight"] = 0
+                        else: r["steps_straight"] = HOMING_RATIO
                     
                     next_x = max(0, min(BOARD_WIDTH - 1, next_x))
-                    
-                    # Adaugam noua coordonata la path
                     r["path"].append((next_x, next_y))
                     
-                    # Taie "coada" razei
                     if len(r["path"]) > RAY_LENGTH:
                         r["path"].pop(0)
                         
-                    # Check Bounds
                     if next_y < 0 or next_y >= BOARD_HEIGHT:
                         to_remove.append(r)
                         continue
                         
-                    # Check Collision cu inamicii
                     if r["team"] == 0 and next_y >= 17:
                         if (next_x, next_y) in self.active_tiles:
                             self.hearts[1] -= 1
                             self.hit_explosions.append({"x": next_x, "y": next_y, "time": now})
                             to_remove.append(r)
                             if self.sounds and 'drop' in self.sounds: self.sounds['drop'].play()
-                            if self.hearts[1] <= 0:
-                                self.end_game("TEAM RED WINS!")
+                            
+                            if self.hearts[1] <= 0: 
+                                self.last_hit_coords = (next_x, next_y)
+                                self.end_round(0) 
                             continue
+                            
                     elif r["team"] == 1 and next_y <= 14:
                         if (next_x, next_y) in self.active_tiles:
                             self.hearts[0] -= 1
                             self.hit_explosions.append({"x": next_x, "y": next_y, "time": now})
                             to_remove.append(r)
                             if self.sounds and 'drop' in self.sounds: self.sounds['drop'].play()
-                            if self.hearts[0] <= 0:
-                                self.end_game("TEAM BLUE WINS!")
+                            
+                            if self.hearts[0] <= 0: 
+                                self.last_hit_coords = (next_x, next_y)
+                                self.end_round(1) 
                             continue
                 
                 for r in to_remove:
-                    if r in self.rays:
-                        self.rays.remove(r)
+                    if r in self.rays: self.rays.remove(r)
 
-            # --- RAY SPAWNING ---
             for (x, y), ts in list(self.charge_timers.items()):
                 if (x, y) not in self.active_tiles:
                     del self.charge_timers[(x, y)]
@@ -254,14 +328,16 @@ class RayWarsGame:
                     direction = 1 if y <= 14 else -1
                     team = 0 if y <= 14 else 1
                     
-                    # Adaugam `steps_straight` pentru a urmari ratia de homing
                     self.rays.append({
                         "path": [(x, y)],
                         "dir": direction,
                         "team": team,
-                        "steps_straight": 0 # Începe contorizarea de la lansare
+                        "steps_straight": 0
                     })
-                    self.charge_timers[(x, y)] = now
+                    
+                    self.exhausted_tiles.add((x, y))
+                    del self.charge_timers[(x, y)]
+                    
                     if self.sounds and 'line' in self.sounds: self.sounds['line'].play()
 
     def set_led(self, buffer, x, y, color):
@@ -302,13 +378,6 @@ class RayWarsGame:
             width = self.draw_char_90(buffer, char.upper(), x, curr_y, color)
             curr_y += width + 1
 
-    # --- RESTAURARE AFISAJ INIMA ORIGINAL ---
-    def draw_heart(self, buffer, center_x, center_y, color):
-        # Folosim exact punctele stilizate din fisierul original al prietenului tau
-        pts = [(0,0), (-1,-1), (1,-1), (-1,0), (1,0), (0,1)]
-        for dx, dy in pts:
-            self.set_led(buffer, center_x + dx, center_y + dy, color)
-
     def render(self):
         buffer = bytearray(FRAME_DATA_LENGTH)
         now = time.time()
@@ -325,26 +394,41 @@ class RayWarsGame:
                             self.set_led(buffer, x, y, c)
 
             elif self.state == 'PLAYING':
-                # Background
                 for y in range(BOARD_HEIGHT):
                     for x in range(BOARD_WIDTH):
                         if y in (15, 16):
                             self.set_led(buffer, x, y, DIVIDER_COLOR)
                         else:
                             if self.button_states[y][x]:
-                                self.set_led(buffer, x, y, WHITE)
+                                color = (100, 100, 100) if (x, y) in self.exhausted_tiles else WHITE
+                                self.set_led(buffer, x, y, color)
                 
-                # Hearts (La coordonatele Y originale 14 si 17)
+                # --- CHARGE GLOW ---
+                for (x, y), ts in self.charge_timers.items():
+                    prog = min(1.0, (now - ts) / CHARGE_TIME)
+                    direction = 1 if y <= 14 else -1
+                    ahead_y = y + direction
+                    
+                    if 0 <= ahead_y < BOARD_HEIGHT:
+                        glow_color = _dim(WHITE, prog * 0.65)
+                        self.set_led(buffer, x, ahead_y, glow_color)
+                
+                # Health Bar
+                start_x = max(0, (BOARD_WIDTH - self.max_health) // 2)
                 for i in range(self.hearts[0]):
-                    self.draw_heart(buffer, 2 + i*3, 14, HEART_COLOR)
+                    if start_x + i < BOARD_WIDTH:
+                        self.set_led(buffer, start_x + i, 14, HEART_COLOR)
                 for i in range(self.hearts[1]):
-                    self.draw_heart(buffer, 2 + i*3, 17, HEART_COLOR)
+                    if start_x + i < BOARD_WIDTH:
+                        self.set_led(buffer, start_x + i, 17, HEART_COLOR)
                 
-                # Rays (Desenam path-ul complet)
+                # --- RAYS WITH FADE EFFECT ---
                 for r in self.rays:
-                    color = TEAM_A_COLOR if r["team"] == 0 else TEAM_B_COLOR
-                    for (rx, ry) in r["path"]:
-                        self.set_led(buffer, rx, ry, color)
+                    base_color = TEAM_A_COLOR if r["team"] == 0 else TEAM_B_COLOR
+                    path_len = len(r["path"])
+                    for i, (rx, ry) in enumerate(reversed(r["path"])):
+                        brightness = 1.0 - (i / path_len) * 0.70
+                        self.set_led(buffer, rx, ry, _dim(base_color, brightness))
                 
                 # Explosions
                 for e in self.hit_explosions:
@@ -352,16 +436,60 @@ class RayWarsGame:
                     for dx, dy in [(0,0), (-1,0), (1,0), (0,-1), (0,1)]:
                         self.set_led(buffer, ex+dx, ey+dy, EXPLOSION_COLOR)
 
-            elif self.state == 'GAMEOVER':
-                text_color = TEAM_A_COLOR if "RED" in self.gameover_text else TEAM_B_COLOR
-                scroll_speed = 12
-                elapsed = now - self.gameover_timer
-                txt_len = len(self.gameover_text) * 4
-                cy = BOARD_HEIGHT - int(elapsed * scroll_speed)
+            elif self.state in ['GAMEOVER', 'MATCH_OVER']:
+                time_in_state = now - self.gameover_timer
                 
-                if cy < -txt_len:
-                    self.gameover_timer = now
-                self.draw_string_90(buffer, self.gameover_text, 12, cy, text_color)
+                # --- ANIMATIE VORTEX SHOCKWAVE (Inel de Spirala Expandabil) ---
+                cx, cy = self.last_hit_coords
+                
+                # Raza exterioara avanseaza
+                max_r = time_in_state * self.VORTEX_EXPANSION_SPEED 
+                
+                # Raza interioara ("gaura neagra") incepe sa apara putin mai tarziu (ex: la 0.7 secunde distanta vizuala)
+                # Odata ce dist < min_r, pixelii devin complet negri.
+                min_r = max(0, (time_in_state - 1.67) * self.VORTEX_EXPANSION_SPEED)
+                
+                for y in range(BOARD_HEIGHT):
+                    for x in range(BOARD_WIDTH):
+                        dx = x - cx
+                        dy = y - cy
+                        dist = math.hypot(dx, dy) 
+                        
+                        # Desenam spirala DOAR pe banda dintre min_r si max_r
+                        if min_r < dist < max_r:
+                            angle = math.atan2(dy, dx)
+                            wave_arg = dist * self.VORTEX_TIGHTNESS + angle * 2.0 - time_in_state * self.VORTEX_ROTATION_SPEED
+                            p_raw = (math.sin(wave_arg) + 1.0) / 2.0
+                            p = math.pow(p_raw, self.VORTEX_ARM_THICKNESS * 2.0)
+
+                            # Fade rapid pe margine la exterior
+                            edge_fade = max(0.0, min(1.0, (max_r - dist) / 3.0))
+                            
+                            # Fade rapid pe margine la interior (unde este inghitit de "gaura")
+                            inner_fade = max(0.0, min(1.0, (dist - min_r) / 3.0))
+                            
+                            final_p = p * edge_fade * inner_fade
+                            color_mod = 0.2 + 0.8 * final_p
+                            
+                            # Scadem din intensitatea de baza a culorii (sa dispara complet in negru)
+                            intensity = edge_fade * inner_fade
+                            led_color = _dim(self.vortex_color, color_mod * intensity)
+                            
+                            self.set_led(buffer, x, y, led_color)
+
+                # --- TEXT SCROLLING (Text ALB, pus peste animatie) ---
+                text_color = WHITE 
+                scroll_speed = 12
+                txt_len = len(self.gameover_text) * 4
+                total_dist = BOARD_HEIGHT + txt_len
+                
+                cy_text = BOARD_HEIGHT - int((time_in_state * scroll_speed) % total_dist)
+                self.draw_string_90(buffer, self.gameover_text, 12, cy_text, text_color)
+                
+            elif self.state == 'SHOW_SCORE':
+                self.draw_char_90(buffer, str(self.score[0]), 10, 10, TEAM_A_COLOR)
+                self.draw_char_90(buffer, '-', 10, 14, WHITE)
+                self.draw_char_90(buffer, str(self.score[1]), 10, 18, TEAM_B_COLOR)
                 
         return buffer
 
@@ -459,9 +587,9 @@ def main():
     gt = threading.Thread(target=lambda: [game.tick() or time.sleep(0.01) for _ in iter(lambda: game.running, False)], daemon=True)
     gt.start()
     
-    print("\n" + "="*40)
-    print(" RAY WARS - HOMING EDITION (3:1) ")
-    print("="*40)
+    print("\n" + "="*45)
+    print(" RAY WARS - FULL FX BEST-OF-5 EDITION ")
+    print("="*45)
     print("Commands: 'start', 'quit'")
     
     try:
@@ -470,7 +598,18 @@ def main():
             if cmd in ('quit', 'q', 'exit'):
                 game.running = False
             elif cmd == 'start':
-                game.start_game()
+                try:
+                    pa = int(input("Jucatori Echipa ROSIE (Sus): "))
+                    pb = int(input("Jucatori Echipa ALBASTRA (Jos): "))
+                    sp = input("Viteza (slow/medium/fast): ").strip().lower()
+                    
+                    if sp not in SPEED_PRESETS:
+                        print("Viteza invalida! Se foloseste 'medium'.")
+                        sp = "medium"
+                        
+                    game.start_game(pa, pb, sp)
+                except ValueError:
+                    print("Eroare: Trebuie sa introduci un numar valid de jucatori!")
     except KeyboardInterrupt:
         game.running = False
 
