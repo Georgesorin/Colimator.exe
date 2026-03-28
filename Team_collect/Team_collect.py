@@ -39,8 +39,9 @@ Game rules:
       Only the OWNING team can claim their own power-ups.
 
     EYE (global, one at a time)
-      - Every 5 s exactly ONE eye opens somewhere in the room (any of the 4 walls).
-      - The previous eye closes first.
+      - EASY: 10 s cycle (6 s active red, 4 s yellow warning on next wall).
+        HARD:  6 s cycle (4 s active red, 2 s yellow warning on next wall).
+      - Idle eyes (not the current or next) show white.
       - The eye LED (LED 0) shows motion. If all players of a team are standing
         on their own walls while the eye is open on one of those walls, that team
         LOSES immediately (the eye "sees" them all).
@@ -63,7 +64,14 @@ from Controller import LightService, LEDS_PER_CHANNEL
 
 # ── Constants ────────────────────────────────────────────────────────────────
 GAME_DURATION_SEC  = 300
-EYE_CYCLE_SEC      = 5
+# Eye timing per difficulty
+EYE_CYCLE_HARD     = 6    # total cycle length (seconds)
+EYE_WARN_HARD      = 2    # warning (yellow) phase before move (seconds)
+EYE_CYCLE_EASY     = 10
+EYE_WARN_EASY      = 4
+# Opening sequence timing
+OPENING_SOLID_SEC  = 6.7  # solid team-colour phase before flashing
+OPENING_FLASH_SEC  = 2.0  # flash + first-eye-warning phase before game starts
 TOTAL_POINTS       = 7
 MAX_MAP_POINTS     = 2   # active point slots per team
 MAX_MAP_POWERUPS   = 1   # active power-up slots per team
@@ -82,16 +90,16 @@ HIDE_DURATION_SEC = 5   # seconds opponent tiles stay blacked-out
 
 # LED colours (r, g, b)
 C_OFF        = (0,   0,   0)
-C_POINT      = (255, 200, 0)    # gold         – point tile
-C_PU_REDIRECT= (0,   200, 255)  # cyan         – redirect power-up
-C_PU_LOCK    = (255, 100, 0)    # orange       – lock power-up
+C_POINT      = (255, 220, 0)    # yellow       – point tile
+C_PU_REDIRECT= (255, 0,   0)    # red          – redirect power-up
+C_PU_LOCK    = (0,   100, 255)  # blue         – lock power-up
 C_PU_HIDE    = (180, 0,   255)  # purple       – hide power-up
-C_EYE_ON     = (255, 255, 200)  # warm white   – normal active eye
-C_EYE_REDIR  = (0,   220, 255)  # bright cyan  – eye was redirected this cycle
-C_EYE_LOCK   = (255, 130, 0)    # orange       – eye is locked in place
+C_EYE_IDLE   = (255, 255, 255)  # white        – idle eye (off-cycle)
+C_EYE_WARN   = (255, 220, 0)    # yellow       – warning: eye about to move here
+C_EYE_ON     = (255, 0,   0)    # bright red   – active eye (open, locked, or redirected)
 C_HIDDEN     = (0,   0,   0)    # off          – tile blacked out by hide PU
-C_IDLE_A     = (0,   0,   25)   # dim blue     – Team A idle tile
-C_IDLE_B     = (0,   20,  0)    # dim green    – Team B idle tile
+C_IDLE_A     = (40,  40,  40)   # dim white    – Team A idle tile
+C_IDLE_B     = (40,  40,  40)   # dim white    – Team B idle tile
 
 POWERUP_COLOR = {
     "redirect": C_PU_REDIRECT,
@@ -143,6 +151,7 @@ class GameState:
         self.eye_channel  = None   # which channel currently has the eye open
         self.eye_locked   = False  # if True, skip the next natural rotation
         self.eye_redirect = False  # if True, eye was redirected this cycle
+        self.eye_warning_channel = None  # channel showing yellow warning (next eye)
 
         # Hide state: which team's tiles are currently hidden (blacked-out), or None
         self.hidden_team: int | None = None
@@ -262,15 +271,18 @@ class GameState:
         opp_ch = TEAM_CH[1 - team]
 
         if sub == "redirect":
-            # Move the active eye to one of the OPPONENT's walls
+            # Move the active eye immediately to one of the OPPONENT's walls.
+            # Also cancel any in-progress warning (the pre-picked next channel is
+            # now invalid since the eye jumped).
             choices = list(opp_ch)
             if self.eye_channel in choices and len(choices) > 1:
                 choices.remove(self.eye_channel)
-            self.eye_channel  = random.choice(choices)
-            self.eye_redirect = True
+            self.eye_channel         = random.choice(choices)
+            self.eye_redirect        = True
+            self.eye_warning_channel = None   # warning was for old cycle — discard
 
         elif sub == "lock":
-            # Freeze the eye for one extra cycle (skip next rotation)
+            # Freeze the eye for one extra cycle (skip next rotation).
             self.eye_locked = True
 
         elif sub == "hide":
@@ -322,22 +334,29 @@ class GameState:
         return None
 
     # ── Eye cycle ─────────────────────────────────────────────────────────────
-    def cycle_eyes(self):
-        """
-        Rotate the single global eye to a new random wall.
-        Returns a result dict describing what happened.
-        """
-        if self.eye_locked:
-            self.eye_locked   = False
-            self.eye_redirect = False
-            return {"action": "locked", "channel": self.eye_channel}
-
+    def pick_next_eye(self):
+        """Choose the next eye channel (without applying it). Used for the warning phase."""
         old = self.eye_channel
         choices = ALL_CHANNELS[:]
         if old in choices and len(choices) > 1:
             choices.remove(old)
-        self.eye_channel  = random.choice(choices)
-        self.eye_redirect = False
+        return random.choice(choices)
+
+    def cycle_eyes(self, next_ch=None):
+        """
+        Rotate the single global eye to a new random wall (or `next_ch` if given).
+        Returns a result dict describing what happened.
+        """
+        if self.eye_locked:
+            self.eye_locked          = False
+            self.eye_redirect        = False
+            self.eye_warning_channel = None
+            return {"action": "locked", "channel": self.eye_channel}
+
+        old = self.eye_channel
+        self.eye_channel         = next_ch if next_ch is not None else self.pick_next_eye()
+        self.eye_redirect        = False
+        self.eye_warning_channel = None
         return {"action": "moved", "old": old, "channel": self.eye_channel}
 
     # ── End ───────────────────────────────────────────────────────────────────
@@ -546,10 +565,11 @@ class SetupScreen(tk.Frame):
         legend = tk.Frame(self, bg=BG)
         legend.pack()
         for col, name, tip in [
-            ("#00c8ff", "Redirect", "Moves eye to opponent's wall"),
-            ("#ff6600", "Lock",     "Eye stays for an extra cycle (Hard only)"),
+            ("#ff0000", "Redirect", "Moves eye to opponent's wall"),
+            ("#0064ff", "Lock",     "Eye stays for an extra cycle (Hard only)"),
             ("#b400ff", "Hide",     "Blinds opponent tiles for 5 s (Hard only)"),
-            ("#ffc800", "Point",    "Score a point — anyone can grab these"),
+            ("#ffdc00", "Point",    "Score a point — anyone can grab these"),
+            ("#ffffff", "Normal",   "Idle pressure tile"),
         ]:
             f = tk.Frame(legend, bg=BG)
             f.pack(side="left", padx=10)
@@ -672,9 +692,11 @@ class GameController(tk.Tk):
         self.svc.on_button_state = self._on_hw_button
         self.svc.on_status       = lambda m: None
 
-        self._eye_after  = None
-        self._tick_after = None
-        self._hide_after = None   # timer handle for the hide power-up reveal
+        self._eye_after          = None
+        self._tick_after         = None
+        self._hide_after         = None   # timer handle for the hide power-up reveal
+        self._opening_flash_after= None   # timer handle during opening sequence
+        self._next_eye_ch        = None   # pre-picked next eye channel for warning
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -786,11 +808,14 @@ class GameController(tk.Tk):
         leg = tk.Frame(parent, bg=BG)
         leg.pack(pady=(2, 6))
         for c, t in [
-            ("#ffc800", "Point"),
-            ("#00c8ff", "Redirect PU"),
-            ("#ff6600", "Lock PU"),
+            ("#ffdc00", "Point"),
+            ("#ff0000", "Redirect PU"),
+            ("#0064ff", "Lock PU"),
             ("#b400ff", "Hide PU"),
-            ("#b400ff", "Tiles hidden"),
+            ("#888888", "Tiles hidden"),
+            ("#ff0000", "Eye active"),
+            ("#ffdc00", "Eye warning"),
+            ("#ffffff", "Eye idle"),
         ]:
             tk.Label(leg, text="■", fg=c, bg=BG,
                      font=("Courier New", 9)).pack(side="left", padx=1)
@@ -799,25 +824,20 @@ class GameController(tk.Tk):
 
     # ── Setup → Game transition ────────────────────────────────────────────────
     def _on_setup_start(self, difficulty, team_a_size, team_b_size, ip):
-        self.gs.difficulty        = difficulty
-        self.gs.team_sizes[0]     = team_a_size
-        self.gs.team_sizes[1]     = team_b_size
+        self.gs.difficulty    = difficulty
+        self.gs.team_sizes[0] = team_a_size
+        self.gs.team_sizes[1] = team_b_size
 
         self.svc.set_device(ip)
         self.svc.start_receiver()
         self.svc.start_polling()
 
         self.gs.reset()
-        self.gs.running    = True
-        self.gs.start_time = time.time()
-        self.gs.spawn_all()
-        self.gs.eye_channel = random.choice(ALL_CHANNELS)
 
-        # Swap visible frames
+        # Swap to game frame immediately (so map labels exist for _send)
         self._setup_frame.pack_forget()
         self._game_frame.pack(fill="both", expand=True)
 
-        # Update meta label
         pool_label = (
             "Easy: Redirect×3 per team"
             if difficulty == "easy"
@@ -830,18 +850,89 @@ class GameController(tk.Tk):
                 f"Team B: {team_b_size} player(s)"
             )
         )
-
-        self._refresh_leds()
         self._update_scores()
         self._update_pool_labels()
-        self._update_eye_label()
-        self._status("Game on! Claim tiles to score.")
-
+        self.lbl_eye.config(text="👁  —")
+        self.lbl_timer.config(text="GET READY", fg=WHITE)
+        self._status("Get ready! Identify your walls…")
         self.btn_stop.config(state="normal")
-        self.lbl_timer.config(fg=GOLD)
 
-        self._schedule_eye()
-        self._tick()
+        self._next_eye_ch  = None
+        self._opening_flash_after = None
+        self._run_opening_sequence()
+
+    def _run_opening_sequence(self):
+        """
+        Phase 1 (0 → OPENING_SOLID_SEC):   Team A walls solid red, Team B solid blue.
+                                             All eye LEDs white (idle).
+        Phase 2 (last OPENING_FLASH_SEC):   Walls flash their team colour.
+                                             At 2 s before start, first eye goes yellow.
+        Phase 3 (t=0):                      Game starts. First eye turns red. Tiles appear.
+        """
+        C_TEAM_A_OPEN = (255, 0,   0)    # solid red   – Team A identification
+        C_TEAM_B_OPEN = (0,   0,   255)  # solid blue  – Team B identification
+
+        solid_ms = int((OPENING_SOLID_SEC - OPENING_FLASH_SEC) * 1000)
+        flash_ms = int(OPENING_FLASH_SEC * 1000)
+
+        # ── Phase 1: solid colours ────────────────────────────────────────────
+        for ch in range(1, 5):
+            col = C_TEAM_A_OPEN if ch in TEAM_A_CH else C_TEAM_B_OPEN
+            for led in range(LEDS_PER_CHANNEL):
+                self._send(ch, led, C_EYE_IDLE if led == 0 else col)
+
+        # ── Phase 2 starts after solid_ms ─────────────────────────────────────
+        def start_flash():
+            # Pick first eye channel and show yellow warning immediately
+            first_eye = random.choice(ALL_CHANNELS)
+            self._next_eye_ch = first_eye
+            self.gs.eye_warning_channel = first_eye
+
+            for ch in range(1, 5):
+                col = C_TEAM_A_OPEN if ch in TEAM_A_CH else C_TEAM_B_OPEN
+                # Eye LED: yellow on the warned channel, white elsewhere
+                eye_col = C_EYE_WARN if ch == first_eye else C_EYE_IDLE
+                self._send(ch, 0, eye_col)
+
+            self.lbl_timer.config(text="FLASH!", fg=GOLD)
+            self._status("Walls flashing — first eye warming up…")
+            _do_flash(flashes=4, on=True, first_eye=first_eye,
+                      col_a=C_TEAM_A_OPEN, col_b=C_TEAM_B_OPEN,
+                      interval=flash_ms // 4)
+
+        def _do_flash(flashes, on, first_eye, col_a, col_b, interval):
+            if flashes <= 0:
+                # Phase 3: actually start
+                self.after(0, _start_game, first_eye)
+                return
+            for ch in range(1, 5):
+                tile_col = (col_a if ch in TEAM_A_CH else col_b) if on else C_OFF
+                eye_col  = C_EYE_WARN if ch == first_eye else (C_EYE_IDLE if on else C_OFF)
+                for led in range(LEDS_PER_CHANNEL):
+                    self._send(ch, led, eye_col if led == 0 else tile_col)
+            self._opening_flash_after = self.after(
+                interval, _do_flash, flashes - 1, not on,
+                first_eye, col_a, col_b, interval
+            )
+
+        def _start_game(first_eye):
+            self.gs.running    = True
+            self.gs.start_time = time.time()
+            self.gs.spawn_all()
+            self.gs.eye_channel         = first_eye
+            self.gs.eye_warning_channel = None
+
+            self._refresh_leds()   # draws tiles + turns first eye red
+            self._update_scores()
+            self._update_pool_labels()
+            self._update_eye_label()
+            self.lbl_timer.config(fg=GOLD)
+            self._status("Game on! Claim tiles to score.")
+
+            self._schedule_eye()
+            self._tick()
+
+        self.after(solid_ms, start_flash)
 
     def _stop(self):
         self._cancel_afters()
@@ -857,8 +948,8 @@ class GameController(tk.Tk):
         self._setup_frame.pack(fill="both", expand=True)
 
     def _cancel_afters(self):
-        for attr in ("_eye_after", "_tick_after", "_hide_after"):
-            h = getattr(self, attr)
+        for attr in ("_eye_after", "_tick_after", "_hide_after", "_opening_flash_after"):
+            h = getattr(self, attr, None)
             if h:
                 self.after_cancel(h)
             setattr(self, attr, None)
@@ -885,14 +976,14 @@ class GameController(tk.Tk):
 
             # Eye (LED 0) — never hidden by the hide power-up
             if ch == gs.eye_channel:
-                if gs.eye_redirect:
-                    eye_col = C_EYE_REDIR
-                elif gs.eye_locked:
-                    eye_col = C_EYE_LOCK
-                else:
-                    eye_col = C_EYE_ON
+                # Active eye — always bright red (redirect/lock don't change colour now)
+                eye_col = C_EYE_ON
+            elif ch == gs.eye_warning_channel:
+                # Next eye warning — yellow
+                eye_col = C_EYE_WARN
             else:
-                eye_col = C_OFF
+                # Idle eye — white
+                eye_col = C_EYE_IDLE
             self._send(ch, 0, eye_col)
 
             # Tiles (LEDs 1-10)
@@ -925,30 +1016,80 @@ class GameController(tk.Tk):
     def _update_eye_label(self):
         gs = self.gs
         ch = gs.eye_channel
-        if ch is None:
+        warn_ch = gs.eye_warning_channel
+        if ch is None and warn_ch is None:
             self.lbl_eye.config(text="👁  —")
             return
-        name = WALL_NAME.get(ch, f"W{ch}")
-        if gs.eye_redirect:
-            tag = " [REDIRECTED]"
-        elif gs.eye_locked:
-            tag = " [LOCKED]"
-        else:
+        parts = []
+        if ch is not None:
+            name = WALL_NAME.get(ch, f"W{ch}")
             tag = ""
+            if gs.eye_redirect:
+                tag = " [REDIRECTED]"
+            elif gs.eye_locked:
+                tag = " [LOCKED]"
+            parts.append(f"🔴 {name}{tag}")
+        if warn_ch is not None and warn_ch != ch:
+            parts.append(f"🟡 {WALL_NAME.get(warn_ch, f'W{warn_ch}')} (next)")
         hidden_note = (
             f"  |  {'A' if gs.hidden_team == 0 else 'B'} tiles HIDDEN"
             if gs.hidden_team is not None else ""
         )
-        self.lbl_eye.config(text=f"👁  {name}{tag}{hidden_note}")
+        self.lbl_eye.config(text="  ".join(parts) + hidden_note)
 
     # ── Timers ────────────────────────────────────────────────────────────────
+    def _eye_timing(self):
+        """Return (active_ms, warn_ms) for current difficulty."""
+        if self.gs.difficulty == "easy":
+            cycle, warn = EYE_CYCLE_EASY, EYE_WARN_EASY
+        else:
+            cycle, warn = EYE_CYCLE_HARD, EYE_WARN_HARD
+        return (cycle - warn) * 1000, warn * 1000
+
     def _schedule_eye(self):
-        self._eye_after = self.after(EYE_CYCLE_SEC * 1000, self._do_eye_cycle)
+        """Start the eye cycle: wait (cycle - warn) ms, then show warning."""
+        active_ms, _ = self._eye_timing()
+        # Pre-pick next channel now (unless currently locked — stays on current wall).
+        # We store it so warning and actual move use the same target.
+        if self.gs.eye_locked:
+            self._next_eye_ch = self.gs.eye_channel  # locked → same wall
+        else:
+            self._next_eye_ch = self.gs.pick_next_eye()
+        self._eye_after = self.after(active_ms, self._do_eye_warning)
+
+    def _do_eye_warning(self):
+        """Show yellow warning on the next eye channel, then schedule the actual move."""
+        if not self.gs.running:
+            return
+        _, warn_ms = self._eye_timing()
+
+        # If a redirect fired during the active phase, _next_eye_ch may be stale.
+        # Re-sync: if the eye moved due to redirect, pick a fresh next from here.
+        if self.gs.eye_redirect:
+            # Eye already jumped — pick new next from current redirected position
+            self._next_eye_ch = self.gs.pick_next_eye()
+
+        # Show warning (yellow) on the target wall.
+        # For a locked eye, the target is the same wall → keep it red (don't show yellow
+        # on the active wall, that would be confusing). Just skip the visual warning.
+        if self.gs.eye_locked:
+            # Locked: no warning shown, eye stays red until cycle fires and clears lock
+            pass
+        else:
+            self.gs.eye_warning_channel = self._next_eye_ch
+            self._refresh_leds()
+            self._update_eye_label()
+
+        self._eye_after = self.after(warn_ms, self._do_eye_cycle)
 
     def _do_eye_cycle(self):
         if not self.gs.running:
             return
-        result = self.gs.cycle_eyes()
+        # For a locked eye, cycle_eyes will keep eye_channel unchanged and clear the lock.
+        # For a normal/redirected eye, pass the pre-picked (or re-synced) next channel.
+        next_ch = None if self.gs.eye_locked else self._next_eye_ch
+        result = self.gs.cycle_eyes(next_ch=next_ch)
+        self._next_eye_ch = None
         action = result.get("action")
         if action == "locked":
             self._status(f"LOCK — eye stays on {WALL_NAME.get(result['channel'])}!")
@@ -1017,6 +1158,10 @@ class GameController(tk.Tk):
             self._status(f"POWER-UP [{sub.upper()}] used by {tname} on {wname}!")
             if sub == "hide":
                 self._start_hide_timer()
+            elif sub == "redirect":
+                # Eye jumped to opponent's wall; any pre-picked next channel is stale.
+                # _do_eye_warning will re-sync when it fires.
+                self._next_eye_ch = None
 
         self._refresh_leds()
         self._update_scores()
