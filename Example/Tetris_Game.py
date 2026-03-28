@@ -22,11 +22,10 @@ _CFG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tetris_con
 
 def _load_config():
     defaults = {
-        "device_ip": "255.255.255.255",
-        "send_port": 4626,
-        "recv_port": 7800,
-        "bind_ip": "0.0.0.0"
-    }
+	"device_ip": "127.0.0.1",
+	"send_port": 6766,
+	"recv_port": 6767
+}
     try:
         if os.path.exists(_CFG_FILE):
             with open(_CFG_FILE, encoding="utf-8") as f:

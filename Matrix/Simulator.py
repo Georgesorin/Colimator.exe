@@ -15,9 +15,9 @@ _CFG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "matrix_sim
 
 def _load_config():
     defaults = {
-        "send_port": 7800,
-        "recv_port": 4626,
-        "device_ip": "255.255.255.255",
+        "send_port": 6766,
+        "recv_port": 6767,
+        "device_ip": "192.168.1.105",
         "last_used_ports": []
     }
     try:
