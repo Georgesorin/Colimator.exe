@@ -37,7 +37,6 @@ import os
 # ──────────────────────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────────────────────
-_CFG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ray_wars_config.json")
 
 def _load_config():
     defaults = {
@@ -45,12 +44,6 @@ def _load_config():
         "send_port":  6766,
         "recv_port":  6767,
     }
-    try:
-        if os.path.exists(_CFG_FILE):
-            with open(_CFG_FILE, encoding="utf-8") as f:
-                return {**defaults, **json.load(f)}
-    except Exception:
-        pass
     return defaults
 
 CONFIG          = _load_config()
@@ -654,7 +647,7 @@ def _game_loop(game):
 if __name__ == "__main__":
     # ── optional: import external screen manager ──────────────
     try:
-        import ray_wars_screens as _screens
+        import RayBattle.ray_battle_screens as _screens
         _HAS_SCREENS = True
     except ImportError:
         _HAS_SCREENS = False
@@ -748,7 +741,7 @@ if __name__ == "__main__":
             print(f"[Screens] Tkinter error: {e} — falling back to terminal only.")
             _terminal_loop()
     else:
-        print("[Screens] ray_wars_screens.py not found — terminal only mode.")
+        print("[Screens] ray_battle_screens.py not found — terminal only mode.")
         _terminal_loop()
 
     net.running = False
