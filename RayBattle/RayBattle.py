@@ -629,7 +629,7 @@ class NetworkManager:
         while self.running:
             try:
                 data, _ = self._rx.recvfrom(2048)
-                if len(data) >= 1373 and data[0] == 0x88 and data[1] == 0x01:
+                if len(data) >= 1373 and data[0] == 0x88:
                     tiles = decode_input(data)
                     with self.game.lock:
                         self.game.active_tiles = tiles
