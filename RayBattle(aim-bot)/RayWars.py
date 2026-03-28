@@ -5,7 +5,7 @@ RAY WARS - eSPORTS EDITION (Best of 5)
 Rays actively track opponents ahead, but with a sharp 3:1 forward-to-lateral ratio.
 Features: Configurable players, speed presets, max 2 *charging* rays/player, anti-camping, 
           dynamic health bar, ray fade effects, charge-up glow, Best-of-5 Match System,
-          and VORTEX SHOCKWAVE round-end animation (White Text)!
+          VORTEX SHOCKWAVE round-end animation, and Ambient BGM!
 """
 
 import socket
@@ -42,6 +42,16 @@ try:
         'gameover': pygame.mixer.Sound(os.path.join(sfx_dir, 'gameover.wav')),
         'line': pygame.mixer.Sound(os.path.join(sfx_dir, 'ray_sfx.mp3'))
     }
+    
+    # --- Incarcare Muzica Ambientala ---
+    bgm_path = os.path.join(sfx_dir, 'ray_ambient.mp3')
+    if os.path.exists(bgm_path):
+        pygame.mixer.music.load(bgm_path)
+        pygame.mixer.music.set_volume(0.4) # Volumul muzicii (0.0 la 1.0)
+        pygame.mixer.music.play(-1)        # -1 inseamna ca se repeta la infinit
+    else:
+        print(f"[!] Warning: BGM not found at {bgm_path}")
+
 except:
     sounds = None
 
@@ -181,7 +191,6 @@ class RayWarsGame:
             print(f"\n[!!!] {self.gameover_text} [!!!]")
         else:
             self.state = 'GAMEOVER'
-            # self.gameover_text = f"{team_name} WINS ROUND!"
             print(f"\n[!] {self.gameover_text}")
             
         if self.sounds and 'gameover' in self.sounds:
@@ -439,15 +448,10 @@ class RayWarsGame:
             elif self.state in ['GAMEOVER', 'MATCH_OVER']:
                 time_in_state = now - self.gameover_timer
                 
-                # --- ANIMATIE VORTEX SHOCKWAVE (Inel de Spirala Expandabil) ---
+                # --- ANIMATIE VORTEX SHOCKWAVE ---
                 cx, cy = self.last_hit_coords
-                
-                # Raza exterioara avanseaza
                 max_r = time_in_state * self.VORTEX_EXPANSION_SPEED 
-                
-                # Raza interioara ("gaura neagra") incepe sa apara putin mai tarziu (ex: la 0.7 secunde distanta vizuala)
-                # Odata ce dist < min_r, pixelii devin complet negri.
-                min_r = max(0, (time_in_state - 1.67) * self.VORTEX_EXPANSION_SPEED)
+                min_r = max(0, (time_in_state - 0.7) * self.VORTEX_EXPANSION_SPEED)
                 
                 for y in range(BOARD_HEIGHT):
                     for x in range(BOARD_WIDTH):
@@ -455,29 +459,24 @@ class RayWarsGame:
                         dy = y - cy
                         dist = math.hypot(dx, dy) 
                         
-                        # Desenam spirala DOAR pe banda dintre min_r si max_r
                         if min_r < dist < max_r:
                             angle = math.atan2(dy, dx)
                             wave_arg = dist * self.VORTEX_TIGHTNESS + angle * 2.0 - time_in_state * self.VORTEX_ROTATION_SPEED
                             p_raw = (math.sin(wave_arg) + 1.0) / 2.0
                             p = math.pow(p_raw, self.VORTEX_ARM_THICKNESS * 2.0)
 
-                            # Fade rapid pe margine la exterior
                             edge_fade = max(0.0, min(1.0, (max_r - dist) / 3.0))
-                            
-                            # Fade rapid pe margine la interior (unde este inghitit de "gaura")
                             inner_fade = max(0.0, min(1.0, (dist - min_r) / 3.0))
                             
                             final_p = p * edge_fade * inner_fade
                             color_mod = 0.2 + 0.8 * final_p
                             
-                            # Scadem din intensitatea de baza a culorii (sa dispara complet in negru)
                             intensity = edge_fade * inner_fade
                             led_color = _dim(self.vortex_color, color_mod * intensity)
                             
                             self.set_led(buffer, x, y, led_color)
 
-                # --- TEXT SCROLLING (Text ALB, pus peste animatie) ---
+                # --- TEXT SCROLLING ---
                 text_color = WHITE 
                 scroll_speed = 12
                 txt_len = len(self.gameover_text) * 4
