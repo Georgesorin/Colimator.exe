@@ -47,8 +47,8 @@ try:
     bgm_path = os.path.join(sfx_dir, 'ray_ambient.mp3')
     if os.path.exists(bgm_path):
         pygame.mixer.music.load(bgm_path)
-        pygame.mixer.music.set_volume(0.4) # Volumul muzicii (0.0 la 1.0)
-        pygame.mixer.music.play(-1)        # -1 inseamna ca se repeta la infinit
+        pygame.mixer.music.set_volume(0.4) 
+        pygame.mixer.music.play(-1)        
     else:
         print(f"[!] Warning: BGM not found at {bgm_path}")
 
@@ -91,14 +91,12 @@ CHARGE_TIME = 0.67
 RAY_LENGTH = 4        
 HOMING_RATIO = 4      
 
-# Speed presets — (ray_speed_start, ray_speed_min, accel_interval, accel_step)
 SPEED_PRESETS = {
     "slow":   (0.28, 0.08, 10.0, 0.02),
     "medium": (0.20, 0.04,  6.7, 0.02),
     "fast":   (0.12, 0.02,  4.0, 0.02),
 }
 
-# --- Colors (R, G, B) ---
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 DIVIDER_COLOR = (50, 50, 50)
@@ -111,11 +109,10 @@ def _dim(color, f):
     return tuple(max(0, min(255, int(c * f))) for c in color)
 
 class RayWarsGame:
-    # --- Vortex Animation Tweakables ---
-    VORTEX_ROTATION_SPEED = 12.0 # Cat de repede se invarte (rad/s)
-    VORTEX_TIGHTNESS = 1.3      # Cat de stransa e spirala (frecventa spatiala)
-    VORTEX_EXPANSION_SPEED = 18.0 # Viteza cu care creste raza maxima (pixeli/s)
-    VORTEX_ARM_THICKNESS = 0.8  # Grosimea bratelor (sin wave sharpening)
+    VORTEX_ROTATION_SPEED = 12.0 
+    VORTEX_TIGHTNESS = 1.3      
+    VORTEX_EXPANSION_SPEED = 18.0 
+    VORTEX_ARM_THICKNESS = 0.8  
 
     def __init__(self):
         self.button_states = [[False for _ in range(BOARD_WIDTH)] for _ in range(BOARD_HEIGHT)]
@@ -130,7 +127,7 @@ class RayWarsGame:
         self.exhausted_tiles = set() 
         self.hit_explosions = []
         
-        self.score = [0, 0] # Team A (Red), Team B (Blue)
+        self.score = [0, 0] 
         self.score_timer = 0
         
         self.start_time = 0
@@ -139,7 +136,6 @@ class RayWarsGame:
         self.gameover_text = ""
         self.gameover_timer = 0
         
-        # Vortex state
         self.last_hit_coords = (8, 16) 
         self.vortex_color = WHITE
         
@@ -155,7 +151,7 @@ class RayWarsGame:
             self.players_a = p_a
             self.players_b = p_b
             self.speed_preset = speed
-            self.score = [0, 0] # Resetam scorul meciului
+            self.score = [0, 0] 
             
             print(f"\n[!] MATCH STARTED! Best of 5! (Speed: {speed.upper()} | {p_a} vs {p_b})")
             self.start_round()
@@ -182,16 +178,16 @@ class RayWarsGame:
         self.gameover_timer = time.time()
         team_name = "ROSU" if winner_team == 0 else "ALBASTRU"
         
-        # Pregatim animatia VORTEX
         self.vortex_color = TEAM_A_COLOR if winner_team == 0 else TEAM_B_COLOR
 
         if self.score[winner_team] >= 3:
             self.state = 'MATCH_OVER'
-            self.gameover_text = f"{team_name} CASTIGA MECIUL !!!"
+            self.gameover_text = f"{team_name} A CASTIGAT MECIUL !!!"
             print(f"\n[!!!] {self.gameover_text} [!!!]")
         else:
             self.state = 'GAMEOVER'
-            print(f"\n[!] {self.gameover_text}")
+            self.gameover_text = "" # FARA TEXT intre runde
+            print(f"\n[!] {team_name} a castigat runda! (Scor: {self.score[0]}-{self.score[1]})")
             
         if self.sounds and 'gameover' in self.sounds:
             self.sounds['gameover'].play()
@@ -209,12 +205,8 @@ class RayWarsGame:
                 return
                 
             elif self.state == 'GAMEOVER':
-                txt_len = len(self.gameover_text) * 4
-                scroll_speed = 12
-                total_dist = BOARD_HEIGHT + txt_len
-                scroll_duration = total_dist / scroll_speed
-                
-                if now - self.gameover_timer >= scroll_duration:
+                # Lasam Vortexul sa se extinda fix 3 secunde inainte sa apara scorul
+                if now - self.gameover_timer >= 3.0:
                     self.state = 'SHOW_SCORE'
                     self.score_timer = now
                 return
@@ -412,17 +404,14 @@ class RayWarsGame:
                                 color = (100, 100, 100) if (x, y) in self.exhausted_tiles else WHITE
                                 self.set_led(buffer, x, y, color)
                 
-                # --- CHARGE GLOW ---
                 for (x, y), ts in self.charge_timers.items():
                     prog = min(1.0, (now - ts) / CHARGE_TIME)
                     direction = 1 if y <= 14 else -1
                     ahead_y = y + direction
-                    
                     if 0 <= ahead_y < BOARD_HEIGHT:
                         glow_color = _dim(WHITE, prog * 0.65)
                         self.set_led(buffer, x, ahead_y, glow_color)
                 
-                # Health Bar
                 start_x = max(0, (BOARD_WIDTH - self.max_health) // 2)
                 for i in range(self.hearts[0]):
                     if start_x + i < BOARD_WIDTH:
@@ -431,7 +420,6 @@ class RayWarsGame:
                     if start_x + i < BOARD_WIDTH:
                         self.set_led(buffer, start_x + i, 17, HEART_COLOR)
                 
-                # --- RAYS WITH FADE EFFECT ---
                 for r in self.rays:
                     base_color = TEAM_A_COLOR if r["team"] == 0 else TEAM_B_COLOR
                     path_len = len(r["path"])
@@ -439,7 +427,6 @@ class RayWarsGame:
                         brightness = 1.0 - (i / path_len) * 0.70
                         self.set_led(buffer, rx, ry, _dim(base_color, brightness))
                 
-                # Explosions
                 for e in self.hit_explosions:
                     ex, ey = e["x"], e["y"]
                     for dx, dy in [(0,0), (-1,0), (1,0), (0,-1), (0,1)]:
@@ -451,7 +438,7 @@ class RayWarsGame:
                 # --- ANIMATIE VORTEX SHOCKWAVE ---
                 cx, cy = self.last_hit_coords
                 max_r = time_in_state * self.VORTEX_EXPANSION_SPEED 
-                min_r = max(0, (time_in_state - 0.7) * self.VORTEX_EXPANSION_SPEED)
+                min_r = max(0, (time_in_state - 1.25) * self.VORTEX_EXPANSION_SPEED)
                 
                 for y in range(BOARD_HEIGHT):
                     for x in range(BOARD_WIDTH):
@@ -476,14 +463,15 @@ class RayWarsGame:
                             
                             self.set_led(buffer, x, y, led_color)
 
-                # --- TEXT SCROLLING ---
-                text_color = WHITE 
-                scroll_speed = 12
-                txt_len = len(self.gameover_text) * 4
-                total_dist = BOARD_HEIGHT + txt_len
-                
-                cy_text = BOARD_HEIGHT - int((time_in_state * scroll_speed) % total_dist)
-                self.draw_string_90(buffer, self.gameover_text, 12, cy_text, text_color)
+                # --- TEXT SCROLLING (Doar daca a castigat MECIUL) ---
+                if self.state == 'MATCH_OVER':
+                    text_color = WHITE 
+                    scroll_speed = 12
+                    txt_len = len(self.gameover_text) * 4
+                    total_dist = BOARD_HEIGHT + txt_len
+                    
+                    cy_text = BOARD_HEIGHT - int((time_in_state * scroll_speed) % total_dist)
+                    self.draw_string_90(buffer, self.gameover_text, 12, cy_text, text_color)
                 
             elif self.state == 'SHOW_SCORE':
                 self.draw_char_90(buffer, str(self.score[0]), 10, 10, TEAM_A_COLOR)
