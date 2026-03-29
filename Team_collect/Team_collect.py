@@ -90,12 +90,10 @@ POWERUP_POOL_HARD = ["redirect", "redirect", "lock", "hide", "hide"]
 
 HIDE_DURATION_SEC = 5   
 
-# ── Colour helpers ────────────────────────────────────────────────────────────
-def _grb(r, g, b):
-    """Convert an (R,G,B) tuple to the GRB order the hardware expects."""
-    return (g, r, b)
-
-# LED colours — written as (R, G, B); _grb() is applied at send time.
+# LED colours — written as (R, G, B).
+# Controller.set_led → build_frame_data already lays bytes as GRB in the wire
+# frame (frame[led*12+ch]=G, frame[led*12+4+ch]=R, frame[led*12+8+ch]=B), so
+# we pass plain RGB here and let the Controller handle the wire layout.
 C_OFF        = (0,   0,   0)
 C_POINT      = (255, 220, 0)    # Yellow       – point tile
 C_PU_REDIRECT= (255, 0,   0)    # Red          – redirect power-up
@@ -453,18 +451,28 @@ def _run_discovery(bind_ip: str, broadcast_ip: str, timeout: float = 3.0) -> str
     """
     Broadcast a discovery packet and return the first responding device IP,
     or None if nothing is found within `timeout` seconds.
-    Binds on port 7800 (the standard Evil Eye receive port).
+
+    For the simulator (loopback): binds to 127.0.0.1 so outgoing packets have
+    source address 127.0.0.1 and the Simulator's reply comes back correctly.
+    For real hardware: binds to the LAN interface IP.
+
+    NOTE: Must NOT be called on the Tk main thread — use a daemon thread.
     """
     pkt, rand1, rand2 = _build_discovery_packet()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.settimeout(0.5)
+
+    # Bind to the actual interface address so replies are routed back correctly.
+    # Port 0 = let the OS pick an ephemeral port; we don't need to receive on
+    # 7800 here — the Simulator sends its reply back to whoever sent the packet,
+    # using the source (ip, port) it sees on the incoming socket.
     try:
-        sock.bind((bind_ip if bind_ip != "127.0.0.1" else "0.0.0.0", 7800))
+        sock.bind((bind_ip, 0))
     except OSError:
         try:
-            sock.bind(("0.0.0.0", 7800))
+            sock.bind(("0.0.0.0", 0))
         except OSError:
             sock.close()
             return None
@@ -480,8 +488,7 @@ def _run_discovery(bind_ip: str, broadcast_ip: str, timeout: float = 3.0) -> str
     while time.time() < deadline:
         try:
             data, addr = sock.recvfrom(1024)
-            # Valid response: 0x68 header + matching random bytes
-            if (len(data) >= 30 and data[0] == 0x68
+            if (len(data) >= 3 and data[0] == 0x68
                     and data[1] == rand1 and data[2] == rand2):
                 found = addr[0]
                 break
@@ -667,14 +674,22 @@ class SetupScreen(tk.Frame):
         self._discover_status.config(text=f"Scanning on {name} ({ip})…", fg=DIM)
         self.update_idletasks()
 
-        found_ip = _run_discovery(ip, bcast)
-        if found_ip:
-            self._ip_var.set(found_ip)
-            self._discover_status.config(
-                text=f"✅ Found device at {found_ip}", fg=COL_B)
-        else:
-            self._discover_status.config(
-                text="❌ No device found. Check cable / interface.", fg=RED)
+        def _run():
+            found_ip = _run_discovery(ip, bcast)
+            # marshal result back to the Tk main thread
+            self.after(0, _on_result, found_ip)
+
+        def _on_result(found_ip):
+            if found_ip:
+                self._ip_var.set(found_ip)
+                self._discover_status.config(
+                    text=f"✅ Found device at {found_ip}", fg=COL_B)
+            else:
+                self._discover_status.config(
+                    text="❌ No device found. Check cable / interface.", fg=RED)
+
+        import threading as _th
+        _th.Thread(target=_run, daemon=True).start()
 
     def _start(self):
         self._on_start(
@@ -967,7 +982,7 @@ class GameController(tk.Tk):
     # ── LED helpers ───────────────────────────────────────────────────────────
     def _send(self, ch, led, col):
         r, g, b = col
-        self.svc.set_led(ch, led, *_grb(r, g, b))   # hardware wants GRB order
+        self.svc.set_led(ch, led, r, g, b)   # Controller handles GRB wire layout
         lbl = self.map_labels.get((ch, led))
         if not lbl:
             return
