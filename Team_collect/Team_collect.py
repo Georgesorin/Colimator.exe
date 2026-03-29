@@ -175,8 +175,6 @@ def run_discovery_flow(status_cb=None):
 
     _log("No devices responded – will use broadcast.")
     return None
-    idx = sum(data) & 0xFF
-    return PASSWORD_ARRAY[idx] if idx < len(PASSWORD_ARRAY) else 0
 
 def build_start_packet(seq):
     pkt = bytearray([0x75, random.randint(0,127), random.randint(0,127),
@@ -219,40 +217,114 @@ def build_frame_data(led_states):
     return bytes(frame)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Lightweight network service  (send + receive)
+# Network service  – thin wrapper around LightService from Controller.py
+#
+# We use LightService directly because it is the only implementation that
+# is known to work with the hardware:
+#   • It maintains a continuous 100 ms polling loop that keeps the hardware
+#     "alive" (the device times out LEDs if it stops receiving frames).
+#   • It builds and sends the exact 4-packet sequence (start / FFF0 / data /
+#     end) with the correct 8 ms inter-packet gaps.
+#   • Its receiver correctly parses the 687-byte button packets.
 # ─────────────────────────────────────────────────────────────────────────────
+try:
+    # Controller.py must be in the same directory (or on sys.path).
+    import sys as _sys, os as _os
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    from Controller import LightService as _LightService
+    _HAVE_LIGHT_SERVICE = True
+except ImportError:
+    _HAVE_LIGHT_SERVICE = False
+
+
 class NetService:
-    def __init__(self, game_ip="255.255.255.255", send_port=4626, recv_port=7800):
-        """
-        game_ip   – where LED frames are broadcast during the game.
-                    For hardware this should be "255.255.255.255" (after
-                    discovery has already unlocked the device via HARDWARE_IP).
-        """
-        self._ip   = game_ip
-        self._sp   = send_port
-        self._rp   = recv_port
-        self._seq  = 0
-        self._lock = threading.Lock()
-        self._sq   = queue.Queue(maxsize=6)
-        self._running = True
+    """
+    Wraps LightService (from Controller.py) so the rest of the game only
+    needs to call:
+        net.set_led(ch, led, r, g, b)   – update one LED
+        net.set_all_leds(states)         – bulk-update {(ch,led):(r,g,b)}
+        net.stop()                       – tear down
 
-        self.on_button = None   # callback(ch, led)  – rising edge only
-        self._prev     = {}
+    on_button callback: on_button(ch, led) – fires on rising edge only.
+    """
 
-        threading.Thread(target=self._send_loop, daemon=True).start()
-        threading.Thread(target=self._recv_loop, daemon=True).start()
+    def __init__(self, game_ip: str, send_port: int = 4626, recv_port: int = 7800):
+        self.on_button = None   # callback(ch, led) on rising edge
 
+        if _HAVE_LIGHT_SERVICE:
+            self._svc = _LightService()
+            self._svc.set_device(game_ip, send_port)
+            self._svc.set_recv_port(recv_port)
+            # Wire button events: on_button_state fires on every state change.
+            # We only care about the rising edge (is_triggered becomes True).
+            self._svc.on_button_state = self._on_button_state
+            self._svc.on_status       = lambda msg: None   # silence internal logs
+            self._svc.start_receiver()
+            self._svc.start_polling()
+        else:
+            # Fallback: bare-bones UDP sender (simulator / offline testing)
+            self._svc    = None
+            self._ip     = game_ip
+            self._sp     = send_port
+            self._rp     = recv_port
+            self._seq    = 0
+            self._lock   = threading.Lock()
+            self._sq     = queue.Queue(maxsize=6)
+            self._running = True
+            self._prev   = {}
+            threading.Thread(target=self._fallback_send_loop, daemon=True).start()
+            threading.Thread(target=self._fallback_recv_loop, daemon=True).start()
+
+    # ── LightService path ─────────────────────────────────────────────────────
+    def _on_button_state(self, ch, led, is_triggered, is_disconnected):
+        """Adapter: LightService calls this; we forward rising edges to on_button."""
+        if is_triggered and self.on_button:
+            self.on_button(ch, led)
+
+    def set_led(self, ch: int, led: int, r: int, g: int, b: int):
+        if self._svc:
+            self._svc.set_led(ch, led, r, g, b)
+        else:
+            with self._lock:
+                self._states = getattr(self, "_states", {})
+                self._states[(ch, led)] = (r, g, b)
+            self._fallback_enqueue()
+
+    def set_all_leds(self, states: dict):
+        """Bulk-update {(ch,led): (r,g,b)} in one shot."""
+        if self._svc:
+            # LightService has no bulk API; call set_led per entry then let
+            # the poller send one coherent frame (no extra enqueue needed).
+            with self._svc._lock:
+                self._svc._led_states.update(states)
+            self._svc._enqueue_frame()
+        else:
+            with self._lock:
+                self._states = getattr(self, "_states", {})
+                self._states.update(states)
+            self._fallback_enqueue()
+
+    def stop(self):
+        if self._svc:
+            self._svc.stop_polling()
+            self._svc.stop_receiver()
+            self._svc.all_off()
+        else:
+            self._running = False
+
+    # ── Fallback path (no Controller.py) ─────────────────────────────────────
     def _next_seq(self):
         with self._lock:
             self._seq = (self._seq + 1) & 0xFFFF
             return self._seq
 
-    def push_frame(self, led_states):
-        frame = build_frame_data(led_states)
+    def _fallback_enqueue(self):
+        states = getattr(self, "_states", {})
+        frame  = build_frame_data(dict(states))
         try: self._sq.put_nowait((self._ip, frame))
         except queue.Full: pass
 
-    def _send_loop(self):
+    def _fallback_send_loop(self):
         while self._running:
             try: ip, frame = self._sq.get(timeout=0.5)
             except queue.Empty: continue
@@ -269,12 +341,13 @@ class NetService:
             except: pass
             self._sq.task_done()
 
-    def _recv_loop(self):
+    def _fallback_recv_loop(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.settimeout(0.5)
         try: sock.bind(("0.0.0.0", self._rp))
         except: pass
+        prev = {}
         while self._running:
             try: data, _ = sock.recvfrom(1024)
             except socket.timeout: continue
@@ -284,15 +357,10 @@ class NetService:
             for ch in range(1, NUM_CHANNELS+1):
                 base = 2 + (ch-1)*171
                 for idx in range(LEDS_PER_CHANNEL):
-                    val   = data[base + 1 + idx]
-                    trig  = (val == 0xCC)
-                    prev  = self._prev.get((ch, idx), False)
-                    if trig and not prev:          # rising edge
+                    trig = (data[base + 1 + idx] == 0xCC)
+                    if trig and not prev.get((ch, idx)):
                         if self.on_button: self.on_button(ch, idx)
-                    self._prev[(ch, idx)] = trig
-
-    def stop(self):
-        self._running = False
+                    prev[(ch, idx)] = trig
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Game constants
@@ -383,11 +451,11 @@ def assign_team_tiles(difficulty, team):
     tile_map[chosen[0]] = POINT
     tile_map[chosen[1]] = POINT
     if difficulty == "easy":
-        tile_map[chosen[2]] = STOP
+        tile_map[chosen[2]] = REDIRECT
     else:
         # Hard: pick one powerup type at random from the hard pool for the
         # initial tile, but don't consume from the respawn pool yet
-        tile_map[chosen[2]] = random.choice([STOP, HIDE])
+        tile_map[chosen[2]] = random.choice([REDIRECT, STOP, HIDE])
 
     return tile_map
 
@@ -412,9 +480,9 @@ def powerup_pool_for(difficulty):
     consumed and needs replacing.
     """
     if difficulty == "easy":
-        return [STOP, STOP, STOP]
+        return [REDIRECT, REDIRECT, REDIRECT]
     else:
-        return [HIDE, REDIRECT, STOP, STOP, HIDE]
+        return [REDIRECT, REDIRECT, STOP, STOP, HIDE]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main Game Engine
@@ -718,9 +786,11 @@ class EvilEyeGame:
 
     # ── Helpers ───────────────────────────────────────────────────────────────
     def _send(self, partial_states):
-        # Merge partial into full LED state table held by the UI
+        # Update the UI mirror first, then push to hardware via NetService.
+        # NetService.set_all_leds() writes directly into LightService's LED
+        # state table and enqueues one frame — the poller keeps it alive.
         self._ui_call("update_leds", partial_states)
-        self._net.push_frame(self._ui.get_led_states())
+        self._net.set_all_leds(partial_states)
 
     def _ui_call(self, event, *args):
         if self._ui:
