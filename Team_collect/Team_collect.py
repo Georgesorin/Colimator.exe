@@ -65,58 +65,50 @@ from Controller import LightService, LEDS_PER_CHANNEL
 # ── Constants ────────────────────────────────────────────────────────────────
 GAME_DURATION_SEC  = 300
 # Eye timing per difficulty
-EYE_CYCLE_HARD     = 6    # total cycle length (seconds)
+EYE_CYCLE_HARD     = 5    # FIXED: Total cycle length set to 5 seconds
 EYE_WARN_HARD      = 2    # warning (yellow) phase before move (seconds)
-EYE_CYCLE_EASY     = 10
+EYE_CYCLE_EASY     = 10   # 10 second cycle for easy
 EYE_WARN_EASY      = 4
 # Opening sequence timing
-OPENING_SOLID_SEC  = 6.7  # solid team-colour phase before flashing
-OPENING_FLASH_SEC  = 2.0  # flash + first-eye-warning phase before game starts
+OPENING_SOLID_SEC  = 6.7  
+OPENING_FLASH_SEC  = 2.0  
 TOTAL_POINTS       = 7
-MAX_MAP_POINTS     = 2   # active point slots per team
-MAX_MAP_POWERUPS   = 1   # active power-up slots per team
+MAX_MAP_POINTS     = 2   
+MAX_MAP_POWERUPS   = 1   
 
-# ── Hardware LED layout ───────────────────────────────────────────────────────
-# The eye/motion-sensor is LED index 0 on each wall channel.
-# Pressure tiles are LEDs 1 .. LEDS_PER_CHANNEL-1  (imported from Controller).
-# If the hardware numbers tiles 0-9 and puts the eye at index 10, set EYE_LED=10
-# and TILE_LED_START=0.  Current assumption matches the wiki: eye=0, tiles=1-10.
-EYE_LED        = 0   # index of the motion-sensor LED on each channel
-TILE_LED_START = 1   # first tile LED index
+EYE_LED        = 0   
+TILE_LED_START = 1   
 
 ALL_CHANNELS = [1, 2, 3, 4]
-TEAM_A_CH    = [1, 2]   # North, East
-TEAM_B_CH    = [3, 4]   # South, West
+TEAM_A_CH    = [1, 2]   
+TEAM_B_CH    = [3, 4]   
 TEAM_CH      = {0: TEAM_A_CH, 1: TEAM_B_CH}
 WALL_NAME    = {1: "North", 2: "East", 3: "South", 4: "West"}
 
-# Power-up pools by difficulty
 POWERUP_POOL_EASY = ["redirect", "redirect", "redirect"]
 POWERUP_POOL_HARD = ["redirect", "redirect", "lock", "hide", "hide"]
 
-HIDE_DURATION_SEC = 5   # seconds opponent tiles stay blacked-out
+HIDE_DURATION_SEC = 5   
 
 # ── Colour helpers ────────────────────────────────────────────────────────────
-# The hardware controller expects colours in GRB byte order (WS2812 standard),
-# not the RGB order that is natural to write.  All colour tuples in this file
-# are written in plain (R, G, B) for readability; _grb() swaps them before
-# every call to svc.set_led so the hardware displays the intended colour.
 def _grb(r, g, b):
     """Convert an (R,G,B) tuple to the GRB order the hardware expects."""
     return (g, r, b)
 
 # LED colours — written as (R, G, B); _grb() is applied at send time.
 C_OFF        = (0,   0,   0)
-C_POINT      = (255, 220, 0)    # yellow       – point tile
-C_PU_REDIRECT= (255, 0,   0)    # red          – redirect power-up
-C_PU_LOCK    = (0,   100, 255)  # blue         – lock power-up
-C_PU_HIDE    = (180, 0,   255)  # purple       – hide power-up
-C_EYE_IDLE   = (255, 255, 255)  # white        – idle eye (off-cycle)
-C_EYE_WARN   = (255, 220, 0)    # yellow       – warning: eye about to move here
-C_EYE_ON     = (255, 0,   0)    # bright red   – active eye (open / locked / redirected)
-C_HIDDEN     = (0,   0,   0)    # off          – tile blacked out by hide PU
-C_IDLE_A     = (40,  40,  40)   # dim white    – Team A idle tile
-C_IDLE_B     = (40,  40,  40)   # dim white    – Team B idle tile
+C_POINT      = (255, 220, 0)    # Yellow       – point tile
+C_PU_REDIRECT= (255, 0,   0)    # Red          – redirect power-up
+C_PU_LOCK    = (0,   0,   255)  # Pure Blue    – lock power-up
+C_PU_HIDE    = (180, 0,   255)  # Purple       – hide power-up
+C_EYE_IDLE   = (255, 255, 255)  # White        – idle eye (off-cycle)
+C_EYE_WARN   = (255, 220, 0)    # Yellow       – warning: eye about to move here
+C_EYE_ON     = (255, 0,   0)    # Bright Red   – active eye (open / locked / redirected)
+C_HIDDEN     = (0,   0,   0)    # Off          – tile blacked out by hide PU
+
+# FIXED: Set normal idle tiles to pure white to match user request and the eye
+C_IDLE_A     = (255, 255, 255)  # White    – Team A idle normal tile
+C_IDLE_B     = (255, 255, 255)  # White    – Team B idle normal tile
 
 POWERUP_COLOR = {
     "redirect": C_PU_REDIRECT,
