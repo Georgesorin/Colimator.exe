@@ -1,0 +1,6 @@
+{
+    "hw_send_port": 4626,
+    "hw_recv_port": 7800,
+    "sim_listen_port": 6768,
+    "sim_send_port": 6769
+}
