@@ -65,7 +65,7 @@ def play_bgm(filename, volume=0.4):
         except: pass
 
 # ==============================================================================
-# CONSTANTE JOC
+# CONSTANTE JOC SI FONTURI LOCALE
 # ==============================================================================
 NUM_CHANNELS, LEDS_PER_CHANNEL = 8, 64
 FRAME_DATA_LENGTH = NUM_CHANNELS * LEDS_PER_CHANNEL * 3
@@ -81,8 +81,23 @@ WALL_COLOR = (0, 255, 0)
 PERIMETER_COLOR = (0, 255, 0)  
 WHT = (255, 255, 255)          
 
+# Fontul mare reintrodus manual pentru Countdown si Scoruri
+FONT_4x7_LOCAL = {
+    '0': [62, 65, 65, 62],
+    '1': [0, 66, 127, 64],
+    '2': [98, 81, 73, 70],
+    '3': [34, 73, 73, 54],
+    '4': [24, 20, 18, 127],
+    '5': [39, 69, 69, 57],
+    '6': [62, 73, 73, 50],
+    '7': [1, 1, 121, 7],
+    '8': [54, 73, 73, 54],
+    '9': [38, 73, 73, 62],
+    '-': [8, 8, 8, 8]
+}
+
 # ==============================================================================
-# MOTOR MATRICE & LABIRINT
+# MOTOR MATRICE
 # ==============================================================================
 class MatrixEngine:
     def __init__(self):
@@ -354,6 +369,7 @@ class FogRunGame:
         play_sound("win.mp3")
         self.state = 'WIN_REVEAL'; self.state_timer = time.time()
 
+    # --- TEXT DRAWING DINAMIC ---
     def _draw_word_wide(self, word, color, center_y_shift=0):
         total_width = 0
         for char in word.upper():
@@ -383,9 +399,14 @@ class FogRunGame:
     def _draw_thin_large_text(self, text, center_y, color):
         total_width = 0
         for char in text.upper():
-            if char == ' ': total_width += 5
-            elif small_font and hasattr(small_font, 'FONT_4x7') and char in small_font.FONT_4x7: total_width += len(small_font.FONT_4x7[char]) + 1
-            else: total_width += 5
+            if char == ' ': 
+                total_width += 5
+            elif char in FONT_4x7_LOCAL: 
+                total_width += len(FONT_4x7_LOCAL[char]) + 1
+            elif small_font and hasattr(small_font, 'FONT_4x7') and char in small_font.FONT_4x7: 
+                total_width += len(small_font.FONT_4x7[char]) + 1
+            else: 
+                total_width += 5
         total_width -= 1
         
         start_y = center_y - total_width // 2
@@ -396,15 +417,22 @@ class FogRunGame:
             if char == ' ':
                 curr_y += 5
                 continue
-            if small_font and hasattr(small_font, 'FONT_4x7') and char in small_font.FONT_4x7:
+            
+            char_data = None
+            if char in FONT_4x7_LOCAL:
+                char_data = FONT_4x7_LOCAL[char]
+            elif small_font and hasattr(small_font, 'FONT_4x7') and char in small_font.FONT_4x7:
                 char_data = small_font.FONT_4x7[char]
+                
+            if char_data:
                 for c, col_data in enumerate(char_data):
                     for r in range(7):
                         if (col_data >> r) & 1:
                             phys_x = 15 - (start_x_base + r); phys_y = curr_y + c
                             if 0 <= phys_x < 16 and 0 <= phys_y < 32: self.engine.set_pixel(phys_x, phys_y, *color)
                 curr_y += len(char_data) + 1
-            else: curr_y += 5
+            else: 
+                curr_y += 5
 
     def _draw_perimeters(self):
         for x in range(16): self.engine.set_pixel(x, 15, *PERIMETER_COLOR); self.engine.set_pixel(x, 16, *PERIMETER_COLOR)
@@ -489,6 +517,8 @@ class FogRunGame:
             for x, y in new_touches: self.ripples.append((x, y, P1_COLOR if y < 16 else P2_COLOR, now))
             self.last_touches = curr_set
             self.ripples = [r for r in self.ripples if now - r[3] < 2.0]
+        elif self.state == 'TUTO_PLAY':
+            pass 
         elif self.state == 'PLAYING':
             p1_touches = [(x - 1, y - 1) for x, y in touches if 1 <= x <= 14 and 1 <= y <= 14]
             p2_touches = [(x - 1, y - 17) for x, y in touches if 1 <= x <= 14 and 17 <= y <= 30]
@@ -674,7 +704,7 @@ class FogRunGame:
             self._draw_perimeters()
 
 # ==============================================================================
-# MAIN LOOP LOGIC
+# ENTRY POINT
 # ==============================================================================
 if __name__ == "__main__":
     game = FogRunGame()

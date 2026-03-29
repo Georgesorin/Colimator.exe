@@ -9,18 +9,34 @@ try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
 except Exception: pass
 
+import screeninfo
+
+def safe_geometry(w, h, x, y):
+    x_str = f"+{int(x)}" if int(x) >= 0 else str(int(x))
+    y_str = f"+{int(y)}" if int(y) >= 0 else str(int(y))
+    return f"{int(w)}x{int(h)}{x_str}{y_str}"
+
 class LabyrinthScreens:
     def __init__(self, game):
         self.game = game
         
+        # PRELUARE DIRECTA MONITOARE (Obligatoriu 2 ecrane)
+        monitors = screeninfo.get_monitors()
+        monitors.sort(key=lambda m: m.x) 
+        
+        m_staff = monitors[0] 
+        m_view = monitors[1] if len(monitors) > 1 else monitors[0]
+
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
-        # --- FEREASTRA STAFF (Laptop Mode) ---
+        # --- FEREASTRA STAFF (Monitor 1) ---
         self.root = ctk.CTk()
-        self.root.title("LABIRINT - Staff Control [LAPTOP MODE]")
+        self.root.title("LABIRINT - Staff Control")
         self.root.configure(fg_color="#0A0A12")
-        self.root.geometry("1280x720+0+0")
+        self.root.geometry(safe_geometry(m_staff.width, m_staff.height, m_staff.x, m_staff.y))
+        self.root.overrideredirect(True)
+        self.root.lift()
         self.root.bind("<Escape>", lambda e: self.stop_all())
         
         # Fundal animat
@@ -35,11 +51,15 @@ class LabyrinthScreens:
         self.selected_difficulty = None
         self.setup_staff_ui()
         
-        # --- FEREASTRA JUCATORI (Laptop Mode) ---
+        # --- FEREASTRA JUCATORI (Monitor 2) ---
         self.view = ctk.CTkToplevel(self.root)
-        self.view.title("LABIRINT - Live Scoreboard [LAPTOP MODE]")
+        self.view.title("LABIRINT - Live Scoreboard")
         self.view.configure(fg_color="#0D0D14")
-        self.view.geometry("1280x720+50+50") 
+        self.view.geometry(safe_geometry(m_view.width, m_view.height, m_view.x, m_view.y)) 
+        self.view.overrideredirect(True)
+        self.view.lift()
+        
+        self.view.bind("<Escape>", lambda e: self.view.overrideredirect(False))
         
         self.setup_view_ui()
         self.update_loop()
