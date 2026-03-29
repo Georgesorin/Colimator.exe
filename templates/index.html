@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Maze Scoreboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { background: #050505; color: white; font-family: 'Courier New', monospace; overflow: hidden; }
+        .container { display: flex; height: 100vh; text-align: center; }
+        .player { flex: 1; padding: 50px; border: 2px solid #222; position: relative; transition: 0.3s; }
+        
+        #p1 { border-color: #00ffff; box-shadow: inset 0 0 50px #00ffff33; }
+        #p2 { border-color: #ff00ff; box-shadow: inset 0 0 50px #ff00ff33; }
+        
+        .score { font-size: 150px; font-weight: bold; margin: 20px 0; text-shadow: 0 0 20px currentColor; }
+        .label { font-size: 24px; letter-spacing: 5px; opacity: 0.7; }
+        .lives { font-size: 40px; color: #ff3333; }
+        .status { font-size: 30px; margin-top: 20px; padding: 10px; background: #222; }
+        
+        .stunned { animation: shake 0.5s infinite; background: #ff0000 !important; color: white; }
+        @keyframes shake { 0% {transform: translate(0);} 25% {transform: translate(5px);} 50% {transform: translate(-5px);} }
+        
+        .middle-info { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); 
+                      background: #000; border: 2px solid #0f0; padding: 20px; z-index: 10; box-shadow: 0 0 30px #0f0; }
+    </style>
+</head>
+<body>
+    <div class="middle-info">
+        <div id="diff">DIFF: STALKER</div>
+        <h2 id="timer">00:00</h2>
+    </div>
+    <div class="container">
+        <div id="p1" class="player">
+            <div class="label">PLAYER 1 [CYAN]</div>
+            <div id="p1_score" class="score" style="color: #00ffff;">0</div>
+            <div id="p1_lives" class="lives">❤️❤️❤️❤️❤️</div>
+            <div id="p1_status" class="status">SYSTEM ACTIVE</div>
+        </div>
+        <div id="p2" class="player">
+            <div class="label">PLAYER 2 [MAGENTA]</div>
+            <div id="p2_score" class="score" style="color: #ff00ff;">0</div>
+            <div id="p2_lives" class="lives">❤️❤️❤️❤️❤️</div>
+            <div id="p2_status" class="status">SYSTEM ACTIVE</div>
+        </div>
+    </div>
+
+    <script>
+        var socket = io();
+        socket.on('render_dashboard', function(data) {
+            document.getElementById('p1_score').innerText = data.p1_score;
+            document.getElementById('p2_score').innerText = data.p2_score;
+            document.getElementById('p1_lives').innerText = "❤️".repeat(data.p1_lives);
+            document.getElementById('p2_lives').innerText = "❤️".repeat(data.p2_lives);
+            document.getElementById('p1_status').innerText = data.p1_status;
+            document.getElementById('p2_status').innerText = data.p2_status;
+            
+            // Efect de Stun
+            document.getElementById('p1').className = data.p1_status === "STUNNED" ? "player stunned" : "player";
+            document.getElementById('p2').className = data.p2_status === "STUNNED" ? "player stunned" : "player";
+        });
+    </script>
+</body>
+</html>
