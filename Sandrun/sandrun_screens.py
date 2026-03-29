@@ -12,6 +12,22 @@ except Exception:
 
 import screeninfo
 
+# ==========================================================
+# FUNCTIE DE SIGURANTA PENTRU GEOMETRIE (Evita eroarea "+-")
+# ==========================================================
+def safe_geometry(w, h, x, y):
+    x = int(x)
+    y = int(y)
+    w = int(w)
+    h = int(h)
+    
+    # Pune "+" doar daca numarul e pozitiv sau zero. 
+    # Daca e negativ, isi aduce singur minusul.
+    x_str = f"+{x}" if x >= 0 else f"{x}"
+    y_str = f"+{y}" if y >= 0 else f"{y}"
+    
+    return f"{w}x{h}{x_str}{y_str}"
+
 class SandrunScreens:
     def __init__(self, game):
         self.game = game
@@ -19,7 +35,7 @@ class SandrunScreens:
         # =======================================================
         # AUTODETECTARE MONITOARE & DEV MODE
         # =======================================================
-        self.is_dev_mode = False # Default fals
+        self.is_dev_mode = False
         
         try:
             monitors = screeninfo.get_monitors()
@@ -29,7 +45,6 @@ class SandrunScreens:
                 m_staff = monitors[0] 
                 m_view = monitors[1]  
             else:
-                # Daca ai doar 1 monitor, intram in Dev Mode
                 self.is_dev_mode = True
                 m_staff = monitors[0]
                 m_view = monitors[0] 
@@ -49,15 +64,13 @@ class SandrunScreens:
         self.root.configure(bg="#1e1e1e")
         
         if not self.is_dev_mode:
-            # Setup pentru Game Room (Fullscreen + Fara margini)
-            self.root.geometry(f"{m_staff.width}x{m_staff.height}+{m_staff.x}+{m_staff.y}")
+            # Folosim functia noua de siguranta aici
+            self.root.geometry(safe_geometry(m_staff.width, m_staff.height, m_staff.x, m_staff.y))
             self.root.overrideredirect(True)
             self.root.attributes("-fullscreen", True)
         else:
-            # Setup pentru Laptop (Fereastra normala, mobila)
             self.root.geometry("1280x720+0+0")
             
-        # Iesire din joc (ESC) - valabila pentru ambele moduri
         self.root.bind("<Escape>", lambda e: self.stop_game())
         
         self.sel_diff = "medium"
@@ -71,9 +84,9 @@ class SandrunScreens:
         self.view.configure(bg="black")
         
         if not self.is_dev_mode:
-            # Setup pentru Game Room (Fullscreen pe TV)
             self.view.overrideredirect(True)
-            self.view.geometry(f"{m_view.width}x{m_view.height}+{m_view.x}+{m_view.y}") 
+            # Folosim functia noua de siguranta si aici
+            self.view.geometry(safe_geometry(m_view.width, m_view.height, m_view.x, m_view.y)) 
             
             def force_fullscreen():
                 self.view.attributes("-fullscreen", True)
@@ -84,7 +97,6 @@ class SandrunScreens:
                 self.view.overrideredirect(False) 
             self.view.bind("<Escape>", escape_view)
         else:
-            # Setup pentru Laptop (Fereastra normala, decalata putin ca sa o vezi)
             self.view.geometry("1280x720+50+50")
         
         self.setup_view_ui()
@@ -118,7 +130,6 @@ class SandrunScreens:
         
         tk.Label(self.root, text="🏜️ SAND RUN - SETĂRI MECI", font=title_font, bg="#1e1e1e", fg="#e6be8a").pack(pady=50)
         
-        # --- DIFICULTATE ---
         f_diff = tk.Frame(self.root, bg="#1e1e1e")
         f_diff.pack(pady=40)
         tk.Label(f_diff, text="Dificultate Joc:", font=lbl_font, bg="#1e1e1e", fg="white", width=15, anchor="e").pack(side=tk.LEFT, padx=30)
@@ -132,7 +143,6 @@ class SandrunScreens:
 
         self.select_diff("medium")
 
-        # --- BUTOANE ACTIUNE ---
         f_act = tk.Frame(self.root, bg="#1e1e1e")
         f_act.pack(pady=100)
         
@@ -146,11 +156,9 @@ class SandrunScreens:
     # UI VIEW SCREEN (JUCATORI)
     # ==========================================
     def setup_view_ui(self):
-        # Titlu urias
         self.lbl_title = tk.Label(self.view, text="SAND RUN", font=("Impact", 100), bg="black", fg="#e6be8a")
         self.lbl_title.pack(pady=(40, 20)) 
         
-        # Container pentru cele 3 coloane (Comori, Timp, Lava)
         f_main = tk.Frame(self.view, bg="black")
         f_main.pack(fill=tk.X, pady=40, padx=50)
         
@@ -175,7 +183,6 @@ class SandrunScreens:
         self.lbl_hits = tk.Label(f_lava, text="0 / 10", font=("Impact", 130), bg="black", fg="white")
         self.lbl_hits.pack()
         
-        # Status text la baza ecranului
         self.lbl_status = tk.Label(self.view, text="AȘTEPTARE JUCĂTORI...", font=("Helvetica", 60, "bold"), bg="black", fg="#aaaaaa")
         self.lbl_status.pack(side=tk.BOTTOM, pady=80, ipady=15)
 
