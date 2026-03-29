@@ -52,7 +52,129 @@ PASSWORD_ARRAY = [
 # ─────────────────────────────────────────────────────────────────────────────
 # Protocol helpers
 # ─────────────────────────────────────────────────────────────────────────────
-def _chk(data):
+def calc_sum(data: bytes | bytearray) -> int:
+    """Checksum used by the discovery packet (same PASSWORD_ARRAY lookup)."""
+    idx = sum(data) & 0xFF
+    return PASSWORD_ARRAY[idx] if idx < len(PASSWORD_ARRAY) else 0
+
+# Alias used internally
+_chk = calc_sum
+
+
+def get_local_interfaces():
+    """Return list of (iface_name, ip, broadcast) for active IPv4 interfaces."""
+    results = []
+    try:
+        import psutil
+        import ipaddress
+        for iface, addrs in psutil.net_if_addrs().items():
+            for addr in addrs:
+                if addr.family == socket.AF_INET:
+                    ip = addr.address
+                    if ip.startswith("127."): continue
+                    try:
+                        net  = ipaddress.IPv4Network(f"{ip}/{addr.netmask}", strict=False)
+                        bcast = str(net.broadcast_address)
+                    except Exception:
+                        bcast = "255.255.255.255"
+                    results.append((iface, ip, bcast))
+    except ImportError:
+        # psutil not available – fall back to hostname trick
+        try:
+            hostname = socket.gethostname()
+            for info in socket.getaddrinfo(hostname, None):
+                if info[0] == socket.AF_INET:
+                    ip = info[4][0]
+                    if not ip.startswith("127."):
+                        results.append(("eth", ip, "255.255.255.255"))
+        except Exception:
+            pass
+    return results
+
+
+def build_discovery_packet():
+    """Build the 0x67 discovery packet (matches the reference implementation)."""
+    rand1, rand2 = random.randint(0, 127), random.randint(0, 127)
+    payload = bytearray([0x0A, 0x02, *b"KX-HC04", 0x03, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x14])
+    pkt = bytearray([0x67, rand1, rand2, len(payload)]) + payload
+    pkt.append(calc_sum(pkt))
+    return bytes(pkt), rand1, rand2
+
+
+def run_discovery_flow(status_cb=None):
+    """
+    Replicates the reference run_discovery_flow().
+    Sends a discovery packet to 169.254.182.44:4626 (the hardware handshake
+    IP), waits up to 3 s for a 0x68 response, then returns the discovered
+    device IP (which the game then uses as the broadcast target).
+
+    status_cb(str) is called with progress messages if supplied.
+    Returns the first discovered device IP, or None on failure.
+    """
+    def _log(msg):
+        if status_cb: status_cb(msg)
+        print(msg)
+
+    interfaces = get_local_interfaces()
+    if not interfaces:
+        _log("No active network interfaces found.")
+        return None
+
+    # Pick the interface whose IP is on the same link-local subnet as the
+    # hardware (169.254.x.x), falling back to the first available one.
+    sel = interfaces[0]
+    for iface, ip, bcast in interfaces:
+        if ip.startswith("169.254."):
+            sel = (iface, ip, bcast)
+            break
+
+    iface_name, local_ip, bcast_ip = sel
+    _log(f"Using interface {iface_name} ({local_ip})")
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((local_ip, UDP_RECEIVER_PORT))
+    except Exception:
+        try: sock.bind(("0.0.0.0", UDP_RECEIVER_PORT))
+        except Exception: pass
+
+    pkt, r1, r2 = build_discovery_packet()
+    _log(f"Sending discovery to {HARDWARE_IP}:{UDP_DEVICE_PORT} …")
+    try:
+        sock.sendto(pkt, (HARDWARE_IP, UDP_DEVICE_PORT))
+    except Exception as e:
+        _log(f"Send failed: {e}")
+        sock.close()
+        return None
+
+    _log("Listening for device response …")
+    sock.settimeout(0.5)
+    end_time = time.time() + 3
+    devices = []
+    while time.time() < end_time:
+        try:
+            data, addr = sock.recvfrom(1024)
+            if (len(data) >= 30 and data[0] == 0x68
+                    and data[1] == r1 and data[2] == r2):
+                if addr[0] not in [d["ip"] for d in devices]:
+                    model = data[6:13].decode(errors="ignore").strip("\x00")
+                    devices.append({"ip": addr[0], "model": model})
+                    _log(f"✅ Found {model} at {addr[0]}")
+        except socket.timeout:
+            continue
+        except Exception:
+            pass
+
+    sock.close()
+
+    if devices:
+        _log(f"Targeting {devices[0]['ip']}")
+        return devices[0]["ip"]
+
+    _log("No devices responded – will use broadcast.")
+    return None
     idx = sum(data) & 0xFF
     return PASSWORD_ARRAY[idx] if idx < len(PASSWORD_ARRAY) else 0
 
@@ -100,8 +222,13 @@ def build_frame_data(led_states):
 # Lightweight network service  (send + receive)
 # ─────────────────────────────────────────────────────────────────────────────
 class NetService:
-    def __init__(self, device_ip, send_port=4626, recv_port=7800):
-        self._ip   = device_ip
+    def __init__(self, game_ip="255.255.255.255", send_port=4626, recv_port=7800):
+        """
+        game_ip   – where LED frames are broadcast during the game.
+                    For hardware this should be "255.255.255.255" (after
+                    discovery has already unlocked the device via HARDWARE_IP).
+        """
+        self._ip   = game_ip
         self._sp   = send_port
         self._rp   = recv_port
         self._seq  = 0
@@ -256,11 +383,11 @@ def assign_team_tiles(difficulty, team):
     tile_map[chosen[0]] = POINT
     tile_map[chosen[1]] = POINT
     if difficulty == "easy":
-        tile_map[chosen[2]] = REDIRECT
+        tile_map[chosen[2]] = STOP
     else:
         # Hard: pick one powerup type at random from the hard pool for the
         # initial tile, but don't consume from the respawn pool yet
-        tile_map[chosen[2]] = random.choice([REDIRECT, STOP, HIDE])
+        tile_map[chosen[2]] = random.choice([STOP, HIDE])
 
     return tile_map
 
@@ -285,9 +412,9 @@ def powerup_pool_for(difficulty):
     consumed and needs replacing.
     """
     if difficulty == "easy":
-        return [REDIRECT, REDIRECT, REDIRECT]
+        return [STOP, STOP, STOP]
     else:
-        return [REDIRECT, REDIRECT, STOP, STOP, HIDE]
+        return [HIDE, REDIRECT, STOP, STOP, HIDE]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main Game Engine
@@ -702,10 +829,77 @@ class GameUI(tk.Tk):
         diff = self._diff_var.get()
         ppt  = self._ppt_var.get()
         tgt  = self._target_var.get()
-        ip   = "127.0.0.1" if tgt == "simulator" else HARDWARE_IP
 
-        self._gs   = GameState(diff, ppt)
-        self._net  = NetService(ip)
+        if tgt == "simulator":
+            self._launch_game(diff, ppt, game_ip="127.0.0.1")
+        else:
+            # Hardware path: run discovery first to unlock the device,
+            # then broadcast game frames on 255.255.255.255.
+            self._show_connecting_overlay(diff, ppt)
+
+    def _show_connecting_overlay(self, diff, ppt):
+        """Overlay displayed while hardware discovery runs."""
+        self._clear_screen()
+        self._screen = "connecting"
+
+        f = tk.Frame(self, bg="#0a0a0a")
+        f.place(relx=0.5, rely=0.5, anchor="center")
+
+        tk.Label(f, text="👁  CONNECTING TO HARDWARE  👁",
+                 font=("Consolas", 20, "bold"), fg="#ff8844", bg="#0a0a0a").pack(pady=(0, 20))
+
+        self._conn_status = tk.Label(f, text=f"Contacting {HARDWARE_IP} …",
+                                     font=("Consolas", 11), fg="#aaa", bg="#0a0a0a",
+                                     wraplength=500, justify="center")
+        self._conn_status.pack(pady=8)
+
+        self._conn_log = tk.Text(f, bg="#0d0d0d", fg="#00cc44", font=("Consolas", 9),
+                                 state="disabled", width=60, height=8, borderwidth=0)
+        self._conn_log.pack(pady=8)
+
+        btn_f = tk.Frame(f, bg="#0a0a0a")
+        btn_f.pack(pady=12)
+        self._conn_skip_btn = tk.Button(
+            btn_f, text="⚡ Skip (broadcast only)",
+            font=("Consolas", 10), fg="white", bg="#444",
+            relief="flat", padx=14, pady=6, cursor="hand2",
+            command=lambda: self._finish_hw_connect(None, diff, ppt))
+        self._conn_skip_btn.pack(side=tk.LEFT, padx=8)
+        tk.Button(btn_f, text="✖ Cancel",
+                  font=("Consolas", 10), fg="white", bg="#662222",
+                  relief="flat", padx=14, pady=6, cursor="hand2",
+                  command=self._build_menu_screen).pack(side=tk.LEFT, padx=8)
+
+        # Run discovery in background thread
+        def _run():
+            def _cb(msg):
+                self.after(0, lambda m=msg: self._conn_append(m))
+            ip = run_discovery_flow(status_cb=_cb)
+            self.after(0, lambda: self._finish_hw_connect(ip, diff, ppt))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _conn_append(self, msg):
+        if not hasattr(self, "_conn_log") or not self._conn_log.winfo_exists():
+            return
+        self._conn_log.configure(state="normal")
+        self._conn_log.insert(tk.END, msg + "\n")
+        self._conn_log.see(tk.END)
+        self._conn_log.configure(state="disabled")
+        if hasattr(self, "_conn_status") and self._conn_status.winfo_exists():
+            self._conn_status.configure(text=msg)
+
+    def _finish_hw_connect(self, discovered_ip, diff, ppt):
+        """Called once discovery completes (or is skipped)."""
+        if self._screen != "connecting":
+            return   # user already cancelled
+        # Whether discovery found a device or not, game frames go to broadcast.
+        # Discovery's job was purely to handshake/unlock the hardware.
+        self._launch_game(diff, ppt, game_ip="255.255.255.255")
+
+    def _launch_game(self, diff, ppt, game_ip):
+        self._gs  = GameState(diff, ppt)
+        self._net = NetService(game_ip=game_ip)
         self._net.on_button = self._on_button_hw
 
         self._build_game_screen()
