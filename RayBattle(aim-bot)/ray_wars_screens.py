@@ -3,24 +3,53 @@ from tkinter import font
 import time
 import math
 
-class RayWarsScreens:
-    # =======================================================
-    # SETARE MONITOR: Daca ecranul jucatorilor e in STANGA 
-    # in setarile Windows, pune -1920 in loc de 1920.
-    # =======================================================
-    MONITOR_2_OFFSET = 1920 
+# --- FIX PENTRU DPI (Taie zoom-ul automat din Windows) ---
+try:
+    import ctypes
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    pass
 
+import screeninfo
+
+class RayWarsScreens:
     def __init__(self, game):
         self.game = game
         
+        # =======================================================
+        # AUTODETECTARE MONITOARE
+        # =======================================================
+        try:
+            monitors = screeninfo.get_monitors()
+            # Sortam monitoarele dupa pozitia pe X pentru consistenta
+            monitors.sort(key=lambda m: m.x) 
+            
+            if len(monitors) >= 2:
+                m_staff = monitors[0] # Ecranul din stanga
+                m_view = monitors[1]  # Ecranul din dreapta
+            else:
+                m_staff = monitors[0]
+                m_view = monitors[0] # Fallback daca ai un singur ecran activ
+                
+        except Exception as e:
+            print(f"[!] Eroare ScreenInfo: {e}. Se foloseste Fallback.")
+            class DummyMonitor:
+                def __init__(self, w, h, x, y):
+                    self.width, self.height, self.x, self.y = w, h, x, y
+            m_staff = DummyMonitor(1920, 1080, 0, 0)
+            m_view = DummyMonitor(1920, 1080, 1920, 0)
+
         # --- 1. FEREASTRA PRINCIPALA (STAFF CONTROL - MONITOR 1) ---
         self.root = tk.Tk()
         self.root.title("RAY WARS - Staff Control Panel")
-        self.root.geometry("1920x1080+0+0") 
         self.root.configure(bg="#1e1e1e")
-        self.root.attributes("-fullscreen", True) 
         
-        self.root.bind("<Escape>", lambda e: self.root.attributes("-fullscreen", False))
+        # Setam fereastra EXACT pe coordonatele primului monitor fara margini
+        self.root.geometry(f"{m_staff.width}x{m_staff.height}+{m_staff.x}+{m_staff.y}")
+        self.root.overrideredirect(True)
+        
+        # Tasta ESC acum inchide tot programul pentru personal
+        self.root.bind("<Escape>", lambda e: self.stop_game())
         
         self.sel_pa = 1
         self.sel_pb = 1
@@ -37,16 +66,12 @@ class RayWarsScreens:
         self.view.title("RAY WARS - Scoreboard")
         self.view.configure(bg="black")
         
-        # 1. Mutam fereastra fizic pe ecranul 2
-        self.view.geometry(f"1920x1080+{self.MONITOR_2_OFFSET}+0") 
+        # Setam fereastra EXACT pe coordonatele monitorului 2 fara margini
+        self.view.geometry(f"{m_view.width}x{m_view.height}+{m_view.x}+{m_view.y}")
+        self.view.overrideredirect(True)
         
-        # 2. FORTAM sistemul sa o mute INAINTE de a activa fullscreen-ul
-        self.view.update() 
+        self.view.bind("<Escape>", lambda e: self.view.overrideredirect(False))
         
-        # 3. Acum o facem gigantica
-        self.view.attributes("-fullscreen", True) 
-        
-        self.view.bind("<Escape>", lambda e: self.view.attributes("-fullscreen", False))
         self.setup_view_ui()
         
         self.update_loop()

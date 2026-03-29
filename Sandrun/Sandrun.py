@@ -114,6 +114,11 @@ class SandrunGame:
         self.gems_collected = 0
         self.active_gems = set() 
         
+        # Expunem limitele catre UI
+        self.target_gems = TARGET_GEMS
+        self.max_hits = MAX_LAVA_HITS
+        self.round_duration = ROUND_DURATION
+        
         self.lock = threading.RLock()
 
     def start_game(self, diff="medium"):
@@ -237,7 +242,6 @@ class SandrunGame:
                             if sounds and 'drop' in sounds: sounds['drop'].play()
                             
                             if self.hits_count >= MAX_LAVA_HITS:
-                                # Noua logica: Daca ai hit-uri maxime, te iarta daca ai strans destule comori
                                 if self.gems_collected >= TARGET_GEMS:
                                     self.end_round(f"MAX HITS REACHED! YOU WON! ({self.gems_collected} Gems)")
                                 else:
@@ -356,7 +360,6 @@ class SandrunGame:
                         self.set_led(buffer, x, y, BLACK)
                 
                 if small_font:
-                    # Adaugam WINNER sau LOSER la inceputul textului
                     prefix = "WINNER" if "WON" in self.gameover_reason else "LOSER"
                     final_text = f"{prefix}  HITS:{self.hits_count}  GEMS:{self.gems_collected}  {int(self.survive_time)}S"
                     
@@ -481,27 +484,31 @@ if __name__ == "__main__":
     gt.start()
     
     print("======================================")
-    print("🏜️  SAND-RUN CONSOLE READY 🏜️")
+    print("🏜️  SAND-RUN - FULL UI EDITION 🏜️")
     print("======================================")
-    print(f"Goal: Collect {TARGET_GEMS} Gems to win within {ROUND_DURATION}s!")
-    print("Commands: 'start [easy|medium|hard]', 'quit'")
     
     try:
-        while game.running:
-            cmd = input("> ").strip().lower()
-            if cmd in ['quit', 'exit', 'q']:
-                game.running = False
-                break
-            elif cmd.startswith('start'):
-                parts = cmd.split()
-                diff = "medium"
-                if len(parts) > 1 and parts[1] in ["easy", "medium", "hard"]:
-                    diff = parts[1]
-                game.start_game(diff)
-            else:
-                 print("Unknown command. Type 'start easy', 'start medium', or 'start hard'.")
-    except KeyboardInterrupt:
-        game.running = False
+        import sandrun_screens
+        print("[!] S-a gasit fisierul GUI. Se lanseaza ecranele...")
+        sandrun_screens.launch(game)
+    except ImportError:
+        print("[!] sandrun_screens.py nu a fost gasit. Mod terminal activat.")
+        try:
+            while game.running:
+                cmd = input("> ").strip().lower()
+                if cmd in ['quit', 'exit', 'q']:
+                    game.running = False
+                    break
+                elif cmd.startswith('start'):
+                    parts = cmd.split()
+                    diff = "medium"
+                    if len(parts) > 1 and parts[1] in ["easy", "medium", "hard"]:
+                        diff = parts[1]
+                    game.start_game(diff)
+                else:
+                     print("Unknown command. Type 'start easy', 'start medium', or 'start hard'.")
+        except KeyboardInterrupt:
+            game.running = False
 
     net.running = False
     print("Exiting...")
