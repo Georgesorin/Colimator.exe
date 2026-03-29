@@ -13,6 +13,12 @@ except Exception:
 import screeninfo
 
 class RayWarsScreens:
+    # =======================================================
+    # OFFSET MONITOR 2: Daca fereastra tot nu e unde trebuie,
+    # incearca sa modifici valoarea in -1920 (daca e in stanga).
+    # =======================================================
+    MONITOR_2_OFFSET = 1920 
+
     def __init__(self, game):
         self.game = game
         
@@ -66,12 +72,19 @@ class RayWarsScreens:
         self.view.title("RAY WARS - Scoreboard")
         self.view.configure(bg="black")
         
-        # Setam fereastra EXACT pe coordonatele monitorului 2 fara margini
-        self.view.geometry(f"{m_view.width}x{m_view.height}+{m_view.x}+{m_view.y}")
+        # TRUC PENTRU MULTI-MONITOR
         self.view.overrideredirect(True)
+        self.view.geometry(f"{m_view.width}x{m_view.height}+{m_view.x}+{m_view.y}") 
         
-        self.view.bind("<Escape>", lambda e: self.view.overrideredirect(False))
+        def force_fullscreen():
+            self.view.attributes("-fullscreen", True)
+        self.root.after(100, force_fullscreen)
         
+        def escape_view(e):
+            self.view.attributes("-fullscreen", False)
+            self.view.overrideredirect(False) 
+            
+        self.view.bind("<Escape>", escape_view)
         self.setup_view_ui()
         
         self.update_loop()
@@ -102,62 +115,67 @@ class RayWarsScreens:
         self.root.destroy()
 
     # ==========================================
-    # UI STAFF 
+    # UI STAFF - REDUS LA ~60%
     # ==========================================
     def setup_staff_ui(self):
-        title_font = font.Font(family="Helvetica", size=48, weight="bold")
-        lbl_font = font.Font(family="Helvetica", size=28, weight="bold")
-        btn_font = font.Font(family="Helvetica", size=32, weight="bold")
-        start_font = font.Font(family="Helvetica", size=40, weight="bold")
+        # Fonturi reduse la ~60%
+        title_font = font.Font(family="Helvetica", size=28, weight="bold")
+        lbl_font = font.Font(family="Helvetica", size=16, weight="bold")
+        btn_font = font.Font(family="Helvetica", size=18, weight="bold")
+        start_font = font.Font(family="Helvetica", size=24, weight="bold")
         
-        tk.Frame(self.root, bg="#1e1e1e", height=80).pack() 
+        tk.Frame(self.root, bg="#1e1e1e", height=40).pack() 
         
-        tk.Label(self.root, text="🎮 RAY WARS - SETĂRI MECI", font=title_font, bg="#1e1e1e", fg="white").pack(pady=40)
+        tk.Label(self.root, text="🎮 RAY WARS - SETĂRI MECI", font=title_font, bg="#1e1e1e", fg="white").pack(pady=20)
         
+        # --- ECHIPA ROSIE ---
         f_red = tk.Frame(self.root, bg="#1e1e1e")
-        f_red.pack(pady=20)
-        tk.Label(f_red, text="Jucători ROȘU (Sus):", font=lbl_font, bg="#1e1e1e", fg="#ff4444", width=28, anchor="e").pack(side=tk.LEFT, padx=20)
+        f_red.pack(pady=10)
+        tk.Label(f_red, text="Jucători ROȘU (Sus):", font=lbl_font, bg="#1e1e1e", fg="#ff4444", width=25, anchor="e").pack(side=tk.LEFT, padx=10)
         for i in range(1, 6):
             btn = tk.Button(f_red, text=str(i), font=btn_font, width=4, height=1,
                             command=lambda n=i: self.select_pa(n), relief=tk.FLAT)
-            btn.pack(side=tk.LEFT, padx=10)
+            btn.pack(side=tk.LEFT, padx=5)
             self.btn_pa[i] = btn
             
+        # --- ECHIPA ALBASTRA ---
         f_blue = tk.Frame(self.root, bg="#1e1e1e")
-        f_blue.pack(pady=20)
-        tk.Label(f_blue, text="Jucători ALBASTRU (Jos):", font=lbl_font, bg="#1e1e1e", fg="#4444ff", width=28, anchor="e").pack(side=tk.LEFT, padx=20)
+        f_blue.pack(pady=10)
+        tk.Label(f_blue, text="Jucători ALBASTRU (Jos):", font=lbl_font, bg="#1e1e1e", fg="#4444ff", width=25, anchor="e").pack(side=tk.LEFT, padx=10)
         for i in range(1, 6):
             btn = tk.Button(f_blue, text=str(i), font=btn_font, width=4, height=1,
                             command=lambda n=i: self.select_pb(n), relief=tk.FLAT)
-            btn.pack(side=tk.LEFT, padx=10)
+            btn.pack(side=tk.LEFT, padx=5)
             self.btn_pb[i] = btn
 
+        # --- VITEZA ---
         f_spd = tk.Frame(self.root, bg="#1e1e1e")
-        f_spd.pack(pady=40)
-        tk.Label(f_spd, text="Viteză Meci:", font=lbl_font, bg="#1e1e1e", fg="#ffaa00", width=28, anchor="e").pack(side=tk.LEFT, padx=20)
+        f_spd.pack(pady=20)
+        tk.Label(f_spd, text="Viteză Meci:", font=lbl_font, bg="#1e1e1e", fg="#ffaa00", width=25, anchor="e").pack(side=tk.LEFT, padx=10)
         
         speeds = [("SLOW", "slow"), ("MEDIUM", "medium"), ("FAST", "fast")]
         for text, val in speeds:
             btn = tk.Button(f_spd, text=text, font=btn_font, width=8, height=1,
                             command=lambda v=val: self.select_speed(v), relief=tk.FLAT)
-            btn.pack(side=tk.LEFT, padx=10)
+            btn.pack(side=tk.LEFT, padx=5)
             self.btn_spd[val] = btn
 
         self.select_pa(1)
         self.select_pb(1)
         self.select_speed("medium")
 
+        # --- BUTOANE ACTIUNE ---
         f_act = tk.Frame(self.root, bg="#1e1e1e")
-        f_act.pack(pady=80)
+        f_act.pack(pady=40)
         
         tk.Button(f_act, text="▶ START MECI", font=start_font, bg="#00cc44", fg="white", 
-                  width=20, height=2, command=self.start_match, relief=tk.RAISED).pack(pady=20)
+                  width=20, height=2, command=self.start_match, relief=tk.RAISED).pack(pady=10)
                   
         tk.Button(f_act, text="✖ OPREȘTE TOT", font=btn_font, bg="#555555", fg="white", 
-                  width=15, command=self.stop_game, relief=tk.FLAT).pack(pady=20)
+                  width=15, command=self.stop_game, relief=tk.FLAT).pack(pady=10)
 
     # ==========================================
-    # UI VIEW SCREEN (JUCATORI)
+    # UI VIEW SCREEN (JUCATORI) - A RAMAS MARE
     # ==========================================
     def setup_view_ui(self):
         self.lbl_title = tk.Label(self.view, text="RAY WARS", font=("Impact", 80), bg="black", fg="white")
