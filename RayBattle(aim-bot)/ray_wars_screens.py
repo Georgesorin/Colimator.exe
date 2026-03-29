@@ -4,6 +4,12 @@ import time
 import math
 
 class RayWarsScreens:
+    # =======================================================
+    # SETARE MONITOR: Daca ecranul jucatorilor e in STANGA 
+    # in setarile Windows, pune -1920 in loc de 1920.
+    # =======================================================
+    MONITOR_2_OFFSET = 1920 
+
     def __init__(self, game):
         self.game = game
         
@@ -29,8 +35,15 @@ class RayWarsScreens:
         # --- 2. FEREASTRA SECUNDARA (VIEW SCREEN PT JUCATORI - MONITOR 2) ---
         self.view = tk.Toplevel(self.root)
         self.view.title("RAY WARS - Scoreboard")
-        self.view.geometry("1920x1080+1920+0") 
         self.view.configure(bg="black")
+        
+        # 1. Mutam fereastra fizic pe ecranul 2
+        self.view.geometry(f"1920x1080+{self.MONITOR_2_OFFSET}+0") 
+        
+        # 2. FORTAM sistemul sa o mute INAINTE de a activa fullscreen-ul
+        self.view.update() 
+        
+        # 3. Acum o facem gigantica
         self.view.attributes("-fullscreen", True) 
         
         self.view.bind("<Escape>", lambda e: self.view.attributes("-fullscreen", False))
@@ -125,22 +138,17 @@ class RayWarsScreens:
         self.lbl_title = tk.Label(self.view, text="RAY WARS", font=("Impact", 80), bg="black", fg="white")
         self.lbl_title.pack(pady=(10, 0)) 
         
-        # --- RÂNDUL 1: SCORUL (Acum e independent de hexagoane) ---
         f_scores = tk.Frame(self.view, bg="black")
         f_scores.pack(fill=tk.X, pady=(0, 10)) 
         
-        # Aliniem la E (dreapta) ca sa se lipeasca de centrul ecranului
         self.lbl_score_red = tk.Label(f_scores, text="0", font=("Impact", 220), bg="black", fg="#ff4444")
         self.lbl_score_red.pack(side=tk.LEFT, expand=True, anchor=tk.E, padx=(0, 40))
         
-        # Am adaugat un impuls (pady=(0, 30)) pt a ridica liniuta perfect la jumatatea cifrelor
         tk.Label(f_scores, text="-", font=("Impact", 150), bg="black", fg="#555555").pack(side=tk.LEFT, pady=(0, 30))
         
-        # Aliniem la W (stanga) ca sa se lipeasca de centrul ecranului
         self.lbl_score_blue = tk.Label(f_scores, text="0", font=("Impact", 220), bg="black", fg="#4444ff")
         self.lbl_score_blue.pack(side=tk.LEFT, expand=True, anchor=tk.W, padx=(40, 0))
         
-        # --- RÂNDUL 2: BARELE DE HP ---
         f_hps = tk.Frame(self.view, bg="black")
         f_hps.pack(fill=tk.X, pady=(0, 20))
         
@@ -161,7 +169,6 @@ class RayWarsScreens:
         self.can_blue_hp = tk.Canvas(f_blue_hp_col, bg="black", highlightthickness=0, width=self.canvas_w, height=self.canvas_h)
         self.can_blue_hp.pack()
 
-        # Status text 
         self.lbl_status = tk.Label(self.view, text="AȘTEPTARE JUCĂTORI...", font=("Helvetica", 52, "bold"), bg="black", fg="#aaaaaa")
         self.lbl_status.pack(pady=20, ipady=10)
         
@@ -231,7 +238,6 @@ class RayWarsScreens:
             start_x_red_fixed = (self.canvas_w - total_w_max) / 2 + R
             start_x_blue_fixed = self.canvas_w - (self.canvas_w - total_w_max) / 2 - R
 
-            # --- HP ROSU ---
             self.can_red_hp.delete("all") 
             h_red = hearts[0]
             for i in range(h_red):
@@ -240,7 +246,6 @@ class RayWarsScreens:
                 if i % 2 == 1: cy += zigzag_offset_y
                 self.draw_hexagon(self.can_red_hp, cx, cy, R, color_red_hex, color_black_hex, outline_w)
 
-            # --- HP ALBASTRU ---
             self.can_blue_hp.delete("all") 
             h_blue = hearts[1]
             for i in range(h_blue):
