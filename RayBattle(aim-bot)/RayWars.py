@@ -566,41 +566,49 @@ class NetworkManager:
         t1.start()
         t2.start()
 
-def main():
+def _game_loop(game):
+    while game.running:
+        game.tick()
+        time.sleep(0.01)
+
+if __name__ == "__main__":
     game = RayWarsGame()
     net = NetworkManager(game)
     net.start_bg()
     
-    gt = threading.Thread(target=lambda: [game.tick() or time.sleep(0.01) for _ in iter(lambda: game.running, False)], daemon=True)
-    gt.start()
+    # Pornim tick-urile jocului intr-un thread separat
+    threading.Thread(target=_game_loop, args=(game,), daemon=True).start()
     
     print("\n" + "="*45)
-    print(" RAY WARS - FULL FX BEST-OF-5 EDITION ")
+    print(" RAY WARS - FULL FX + TKINTER GUI ")
     print("="*45)
-    print("Commands: 'start', 'quit'")
     
     try:
-        while game.running:
-            cmd = input("> ").strip().lower()
-            if cmd in ('quit', 'q', 'exit'):
-                game.running = False
-            elif cmd == 'start':
-                try:
-                    pa = int(input("Jucatori Echipa ROSIE (Sus): "))
-                    pb = int(input("Jucatori Echipa ALBASTRA (Jos): "))
-                    sp = input("Viteza (slow/medium/fast): ").strip().lower()
-                    
-                    if sp not in SPEED_PRESETS:
-                        print("Viteza invalida! Se foloseste 'medium'.")
-                        sp = "medium"
-                        
-                    game.start_game(pa, pb, sp)
-                except ValueError:
-                    print("Eroare: Trebuie sa introduci un numar valid de jucatori!")
-    except KeyboardInterrupt:
-        game.running = False
+        # Incercam sa importam ecranele
+        import ray_wars_screens
+        print("[!] S-a gasit fisierul GUI. Se lanseaza ecranele...")
+        # Functia launch() din ray_wars_screens blocheaza aici pana inchizi fereastra
+        ray_wars_screens.launch(game)
+        
+    except ImportError:
+        print("[!] ray_wars_screens.py nu a fost gasit. Mod terminal activat.")
+        try:
+            while game.running:
+                cmd = input("> ").strip().lower()
+                if cmd in ('quit', 'q', 'exit'):
+                    game.running = False
+                elif cmd == 'start':
+                    try:
+                        pa = int(input("Jucatori Echipa ROSIE (Sus): "))
+                        pb = int(input("Jucatori Echipa ALBASTRA (Jos): "))
+                        sp = input("Viteza (slow/medium/fast): ").strip().lower()
+                        if sp not in SPEED_PRESETS: sp = "medium"
+                        game.start_game(pa, pb, sp)
+                    except ValueError:
+                        print("Eroare!")
+        except KeyboardInterrupt:
+            game.running = False
 
+    game.running = False
     net.running = False
-
-if __name__ == "__main__":
-    main()
+    print("Exiting...")
