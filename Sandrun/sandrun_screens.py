@@ -13,18 +13,14 @@ except Exception:
 import screeninfo
 
 class SandrunScreens:
-    # =======================================================
-    # OFFSET MONITOR 2: Daca fereastra tot nu e unde trebuie,
-    # incearca sa modifici valoarea in -1920 (daca e in stanga).
-    # =======================================================
-    MONITOR_2_OFFSET = 1920 
-
     def __init__(self, game):
         self.game = game
         
         # =======================================================
-        # AUTODETECTARE MONITOARE
+        # AUTODETECTARE MONITOARE & DEV MODE
         # =======================================================
+        self.is_dev_mode = False # Default fals
+        
         try:
             monitors = screeninfo.get_monitors()
             monitors.sort(key=lambda m: m.x) 
@@ -33,24 +29,35 @@ class SandrunScreens:
                 m_staff = monitors[0] 
                 m_view = monitors[1]  
             else:
+                # Daca ai doar 1 monitor, intram in Dev Mode
+                self.is_dev_mode = True
                 m_staff = monitors[0]
                 m_view = monitors[0] 
                 
         except Exception as e:
-            print(f"[!] Eroare ScreenInfo: {e}. Se foloseste Fallback.")
+            print(f"[!] Eroare ScreenInfo: {e}. Intram in Dev Mode de siguranta.")
+            self.is_dev_mode = True
             class DummyMonitor:
                 def __init__(self, w, h, x, y):
                     self.width, self.height, self.x, self.y = w, h, x, y
             m_staff = DummyMonitor(1920, 1080, 0, 0)
-            m_view = DummyMonitor(1920, 1080, 1920, 0)
+            m_view = DummyMonitor(1920, 1080, 0, 0)
 
-        # --- 1. FEREASTRA PRINCIPALA (STAFF CONTROL - MONITOR 1) ---
+        # --- 1. FEREASTRA PRINCIPALA (STAFF CONTROL) ---
         self.root = tk.Tk()
-        self.root.title("SAND RUN - Staff Control Panel")
+        self.root.title("SAND RUN - Staff Control Panel" + (" [DEV MODE]" if self.is_dev_mode else ""))
         self.root.configure(bg="#1e1e1e")
-        self.root.geometry(f"{m_staff.width}x{m_staff.height}+{m_staff.x}+{m_staff.y}")
-        self.root.overrideredirect(True)
         
+        if not self.is_dev_mode:
+            # Setup pentru Game Room (Fullscreen + Fara margini)
+            self.root.geometry(f"{m_staff.width}x{m_staff.height}+{m_staff.x}+{m_staff.y}")
+            self.root.overrideredirect(True)
+            self.root.attributes("-fullscreen", True)
+        else:
+            # Setup pentru Laptop (Fereastra normala, mobila)
+            self.root.geometry("1280x720+0+0")
+            
+        # Iesire din joc (ESC) - valabila pentru ambele moduri
         self.root.bind("<Escape>", lambda e: self.stop_game())
         
         self.sel_diff = "medium"
@@ -58,22 +65,27 @@ class SandrunScreens:
         
         self.setup_staff_ui()
         
-        # --- 2. FEREASTRA SECUNDARA (VIEW SCREEN PT JUCATORI - MONITOR 2) ---
+        # --- 2. FEREASTRA SECUNDARA (VIEW SCREEN PT JUCATORI) ---
         self.view = tk.Toplevel(self.root)
-        self.view.title("SAND RUN - Scoreboard")
+        self.view.title("SAND RUN - Scoreboard" + (" [DEV MODE]" if self.is_dev_mode else ""))
         self.view.configure(bg="black")
-        self.view.overrideredirect(True)
-        self.view.geometry(f"{m_view.width}x{m_view.height}+{m_view.x}+{m_view.y}") 
         
-        def force_fullscreen():
-            self.view.attributes("-fullscreen", True)
-        self.root.after(100, force_fullscreen)
-        
-        def escape_view(e):
-            self.view.attributes("-fullscreen", False)
-            self.view.overrideredirect(False) 
+        if not self.is_dev_mode:
+            # Setup pentru Game Room (Fullscreen pe TV)
+            self.view.overrideredirect(True)
+            self.view.geometry(f"{m_view.width}x{m_view.height}+{m_view.x}+{m_view.y}") 
             
-        self.view.bind("<Escape>", escape_view)
+            def force_fullscreen():
+                self.view.attributes("-fullscreen", True)
+            self.root.after(100, force_fullscreen)
+            
+            def escape_view(e):
+                self.view.attributes("-fullscreen", False)
+                self.view.overrideredirect(False) 
+            self.view.bind("<Escape>", escape_view)
+        else:
+            # Setup pentru Laptop (Fereastra normala, decalata putin ca sa o vezi)
+            self.view.geometry("1280x720+50+50")
         
         self.setup_view_ui()
         self.update_loop()
@@ -183,46 +195,37 @@ class SandrunScreens:
             gameover_reason = self.game.gameover_reason
             startup_step = self.game.startup_step
             
-            # Din game config
             target_gems = self.game.target_gems
             max_hits = self.game.max_hits
             round_dur = self.game.round_duration
             diff = self.game.difficulty
 
-        # Calcul timp ramas
         if state in ["LOBBY", "STARTUP"]:
             time_left = round_dur
         elif state == "PLAYING":
             time_left = max(0, round_dur - int(survive_time))
         else:
-            # Daca e Game Over, arata 0 daca a castigat prin timp, sau timpul la care a murit
             time_left = max(0, round_dur - int(survive_time))
 
-        # --- Update Texte Numerice ---
         self.lbl_gems.config(text=f"{gems} / {target_gems}")
         self.lbl_hits.config(text=f"{hits} / {max_hits}")
         self.lbl_time.config(text=f"{time_left}s")
 
-        # --- Culori Dinamice (Avertizari vizuale) ---
-        # Timp pe terminate (sub 10s face rosu)
         if time_left <= 10 and state == "PLAYING":
             self.lbl_time.config(fg="#ff4444" if int(time.time() * 5) % 2 == 0 else "white")
         else:
             self.lbl_time.config(fg="white")
             
-        # Comori la gata (Verde)
         if gems >= target_gems:
             self.lbl_gems.config(fg="#00cc44")
         else:
             self.lbl_gems.config(fg="white")
             
-        # Lovituri aproape de max (Rosu)
         if hits >= max_hits - 2:
             self.lbl_hits.config(fg="#ff4444" if int(time.time() * 5) % 2 == 0 else "white")
         else:
             self.lbl_hits.config(fg="white")
 
-        # --- Update Status Bar ---
         if state == "LOBBY":
             self.lbl_status.config(text="AȘTEPTARE JUCĂTORI...", fg="#aaaaaa")
         elif state == "STARTUP":
@@ -235,7 +238,6 @@ class SandrunScreens:
             else:
                 self.lbl_status.config(text="JOC TERMINAT! PREA MULTE LOVITURI DE LAVĂ!", fg="#ff4444")
 
-        # Repeta functia peste 100ms
         self.root.after(100, self.update_loop)
 
 def launch(game):

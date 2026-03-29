@@ -40,7 +40,7 @@ try:
     bgm_path = os.path.join(sfx_dir, 'agni_kay.mp3')
     if os.path.exists(bgm_path):
         pygame.mixer.music.load(bgm_path)
-        pygame.mixer.music.set_volume(0.1) 
+        pygame.mixer.music.set_volume(0.7) 
         pygame.mixer.music.play(-1)        
     else:
         print(f"[!] Warning: BGM not found at {bgm_path}")
