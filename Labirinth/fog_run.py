@@ -7,9 +7,7 @@ import os
 import math
 import pygame
 
-# ==============================================================================
-# CONFIGURARE ȘI NETWORKING
-# ==============================================================================
+# NETWORKING
 
 _CFG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_joc.json")
 
@@ -29,38 +27,31 @@ def _load_config():
 
 CONFIG = _load_config()
 
-# Constante Matrice
 NUM_CHANNELS = 8
 LEDS_PER_CHANNEL = 64
 FRAME_DATA_LENGTH = NUM_CHANNELS * LEDS_PER_CHANNEL * 3
 
-# Socket pentru Dashboard
 SB_IP = "127.0.0.1"
 SB_PORT = 5005
 sb_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-# ==============================================================================
-# CULORI (TURCOAZ VS MAGENTA)
-# ==============================================================================
+# COLORS
 
-P1_COLOR = (0, 255, 255)       # TURCOAZ (Cyan Electric)
-P2_COLOR = (255, 0, 255)       # MAGENTA (Roz-Mov Neon)
-P1_TRAIL = (0, 60, 60)         # Urmă Turcoaz Întunecat
-P2_TRAIL = (60, 0, 60)         # Urmă Magenta Întunecat
-WALL_COLOR = (0, 255, 0)       # Ziduri Verzi
-PERIMETER_COLOR = (0, 255, 0)  # Margini Verzi
-STUN_COLOR = (255, 0, 0)       # Alertă Roșie
-FINISH_COLOR = (255, 255, 0)   # Galben Victorie
-WHT = (255, 255, 255)          # Text Alb
+P1_COLOR = (0, 255, 255)
+P2_COLOR = (255, 0, 255)
+P1_TRAIL = (0, 60, 60)
+P2_TRAIL = (60, 0, 60)
+WALL_COLOR = (0, 255, 0)
+PERIMETER_COLOR = (0, 255, 0)
+STUN_COLOR = (255, 0, 0)
+FINISH_COLOR = (255, 255, 0)
+WHT = (255, 255, 255)
 
-# Setări Globale
 MAZE_SIZE = 14
 MAX_WINS = 5
 STUN_DURATION = 2.0 
 
-# ==============================================================================
-# FONTURI COMPLETE (Pentru evitarea crash-urilor vizuale)
-# ==============================================================================
+# FONTS
 
 FONT_3x5 = {
     ' ': [0, 0, 0],
@@ -124,10 +115,7 @@ FONT_4x7 = {
     '!': [0, 95, 0, 0]
 }
 
-# ==============================================================================
-# MOTORUL DE COMUNICARE (UDP)
-# ==============================================================================
-
+# UDP
 class MatrixEngine:
     def __init__(self):
         self.target_ip = CONFIG.get("device_ip", "127.0.0.1")
@@ -223,10 +211,8 @@ class MatrixEngine:
 
     def stop(self): self.running = False
 
-# ==============================================================================
-# ALGORITMUL DE GENERARE LABIRINT
-# ==============================================================================
 
+# LABIRINTH GENERATOR
 class MazeGenerator:
     @staticmethod
     def generate():
@@ -279,10 +265,8 @@ class MazeGenerator:
             else: stack.pop()
         return grid
 
-# ==============================================================================
-# LOGICĂ DE DIFICULTĂȚI ȘI STĂRI JUCĂTOR
-# ==============================================================================
 
+# PLAYER STATES AND DIFICULTIES
 class PlayerState:
     def __init__(self, offset_y):
         self.offset_x, self.offset_y = 1, offset_y
@@ -298,11 +282,11 @@ class PlayerState:
         pygame.mixer.pre_init(44100, -16, 2, 2048)
         pygame.mixer.init()
         
-        # PORNIM MUZICA DE FUNDAL
-        bgm_path = os.path.join("sounds", "maze_sound.mp3") # asigura-te ca asa se numeste fisierul
+        # BACKGROUND MUSIC
+        bgm_path = os.path.join("sounds", "maze_sound.mp3")
         if os.path.exists(bgm_path):
             pygame.mixer.music.load(bgm_path)
-            pygame.mixer.music.set_volume(0.4) # O punem la 40% ca să se audă SFX-urile peste ea
+            pygame.mixer.music.set_volume(0.4)
             pygame.mixer.music.play(-1)
 
     def set_difficulty(self, category, diff, role="CHILD"):
@@ -314,7 +298,7 @@ class PlayerState:
                     self.max_lives, self.vis_radius, self.trail_life, self.full_reveal = 10, 2, 9999.0, True
                 else: 
                     self.max_lives, self.vis_radius, self.trail_life = 5, 1, 20.0
-            else: # ADULT / Părinte
+            else: # ADULT
                 if diff == "EASY":
                     self.max_lives, self.vis_radius, self.trail_life = 5, 1, 20.0
                 else: 
@@ -337,10 +321,7 @@ class PlayerState:
         self.powerup_active = True
         self.reveal_timer = self.reset_timer = 0
 
-# ==============================================================================
-# LOGICA PRINCIPALĂ A JOCULUI
-# ==============================================================================
-
+# MAIN
 class FogRunGame:
     def __init__(self):
         self.engine = MatrixEngine()
@@ -375,7 +356,7 @@ class FogRunGame:
                 self.p1.score = self.p2.score = 0
                 self.generate_new_round()
                 
-                # TIMER INIȚIAL 5 SECUNDE 
+                # TIMER
                 self._transition('TXT_JOCUL_INCEPE', now)
         
     def generate_new_round(self):
@@ -440,7 +421,6 @@ class FogRunGame:
         touches = self.engine.get_touches()
         now = time.time()
         
-        # RIPPLES PENTRU PAUZE INTERACTIVE
         if self.state == 'INTERACTIVE_BREAK':
             curr_set = set(touches)
             new_touches = curr_set - self.last_touches
@@ -523,8 +503,7 @@ class FogRunGame:
                 if not is_tuto:
                     player.lives -= 1
                     if self.category == "MIXED" and self.difficulty == "HARD" and player == self.p2:
-                        # Îi dăm copilului 3 secunde de vedere când părintele ia Stun
-                        self.p1.reveal_timer = now + 1.5 # (Aici rămâne așa dacă vrei să se adune la check-ul de 3.0 de mai sus)
+                        self.p1.reveal_timer = now + 1.5
                     
                     if player.lives <= 0:
                         self._end_round(winner_name=opponent_name)
@@ -597,8 +576,8 @@ class FogRunGame:
                 for c, col_data in enumerate(FONT_3x5[char]):
                     for r in range(5):
                         if (col_data >> r) & 1:
-                            phys_x = start_x_base + r          # Rotire X
-                            phys_y = 31 - (curr_y + c)         # Rotire Y
+                            phys_x = start_x_base + r
+                            phys_y = 31 - (curr_y + c)
                             if 0 <= phys_x < 16 and 0 <= phys_y < 32:
                                 self.engine.set_pixel(phys_x, phys_y, *color)
                 curr_y += 4 
@@ -743,48 +722,37 @@ class FogRunGame:
         for i in range(w):
             for j in range(h): self.engine.set_pixel(x + i, y + j, *color)
 
-    # ==============================================================================
-    # MAȘINA DE STĂRI (STATE MACHINE) - FLUX RAPID ȘI CORECTAT
-    # ==============================================================================
-
+    
+# CONTROL MACHINE
     def render(self):
         self.engine.clear()
         self.update_dashboard()
         self.process_commands()
         
-        # PROCESĂM ATINGERILE MEREU PENTRU CA VALURILE SĂ MEARGĂ!
         self.process_inputs()
         
         now = time.time()
         time_in_state = now - self.state_timer
-        WORD_DUR = 1.2 # TIMP RAPID DE TRANZIȚIE
+        WORD_DUR = 1.2
 
-        # 1. ALEGE JOCUL
+        # CHOOSE THE GAME
         if self.state == 'WAIT_START':
             p = int(40 + 40 * math.sin(now * 3))
             self._draw_word_wide("ALEGE", (0, p, 0), -4)
             self._draw_word_wide("JOCUL", (0, p, 0), 4)
 
-        # 2. TIMER DE 5 SECUNDE CU "JOCUL INCEPE"
+        # TIMER
         elif self.state == 'TXT_JOCUL_INCEPE':
-            # Durata totală a animației
             durata_fade = 5.0
-            
-            # Calculăm progresul (de la 1.0 la 0.0)
-            # max(0.0, ...) ne asigură că valoarea nu devine negativă
             progres = max(0.0, 1.0 - (time_in_state / durata_fade))
             
-            # Calculăm intensitatea verdelui (255 * progres)
             verde_dinamic = int(255 * progres)
             culoare_text = (0, verde_dinamic, 0)
             
-            # Desenăm textul cu culoarea care se stinge
             self._draw_word_wide("INCEPE", culoare_text, -4)
             self._draw_word_wide("JOCUL", culoare_text, 4)
             
-            # Când timpul a expirat, trecem la animația de încărcare (BOOT_ANIM)
             if time_in_state > durata_fade:
-                # Opțional: punem o mică pauză de 50ms de beznă totală înainte de boot
                 self.engine.clear()
                 time.sleep(0.05) 
                 self._transition('BOOT_ANIM', now)
@@ -796,14 +764,13 @@ class FogRunGame:
                     if (x + y) < max_dist and self.boot_maze[y][x] == 1:
                         self.engine.set_pixel(x, y, 0, 100, 0)
             
-            # După 7 secunde, mergem la afișarea textului "CUM SE JOACĂ"
             if time_in_state > 10.0: 
                 self._transition('TXT_CUM', now)
 
-        # 3. TUTORIAL PENTRU EXACT 2.3 SECUNDE
+        # TUTORIAL 
         elif self.state == 'TXT_CUM':
             self._draw_word_wide("CUM", WHT)
-            self.is_tutorial = True # Activăm tutorialul de aici
+            self.is_tutorial = True
             if time_in_state > 1.0: self._transition('TXT_SE', now)
 
         elif self.state == 'TXT_SE':
@@ -813,13 +780,12 @@ class FogRunGame:
         elif self.state == 'TXT_JOACA':
             self._draw_word_wide("JOACA", WHT)
             if time_in_state > 1.0: 
-                self._transition('PAUZA_MEA_1', now) # Trece în pauză
+                self._transition('PAUZA_MEA_1', now)
 
-        # STAREA NOUĂ DE PAUZĂ
+        # NEW STATE
         elif self.state == 'PAUZA_MEA_1':
-            # Aici NU desenezi niciun text. Ecranul va fi negru (sau doar cu borduri)
-            if time_in_state > 1.0: # Așteaptă fix 1.0 secunde
-                self._transition('TUTO_PLAY', now) # După 1 secundă, trece la tutorial
+            if time_in_state > 1.0:
+                self._transition('TUTO_PLAY', now)
 
         elif self.state == 'TUTO_PLAY':
             t_s = now - self.state_timer
@@ -834,13 +800,12 @@ class FogRunGame:
             self._render_maze(self.p2, False, [self.p2.tuto_path[idx2]])
             self._draw_perimeters()
             
-            # Calcul durată completă tutorial ca să nu se închidă mai devreme
             tuto_dur = max(len(self.p1.tuto_path), len(self.p2.tuto_path)) * 0.4 + 1.0
             if t_s > tuto_dur: 
                 self.is_tutorial = False
                 self._transition('TXT_ACUM', now)
 
-        # 4. ACUM ALEGE O CULOARE
+        # CHOOSE A COLOR
         elif self.state == 'TXT_ACUM':
             self._draw_word_wide("ACUM", WHT) 
             if time_in_state > WORD_DUR: self._transition('TXT_ALEGE', now)
@@ -893,7 +858,6 @@ class FogRunGame:
             if time_in_state > 3.0: self._transition('PRE_COUNT', now)
             
         elif self.state == 'PRE_COUNT':
-            # ECRAN GOL TIMP DE 1 SECUNDĂ
             self._render_start_zone(self.p1)
             self._render_start_zone(self.p2)
             if time_in_state > 1.0:
@@ -902,7 +866,7 @@ class FogRunGame:
                     pygame.mixer.Sound(sfx_path).play()
                 self._transition('COUNT_3', now)
 
-        # 6. COUNTDOWN 3, 2, 1, 0 -> PLAYING
+        # COUNTDOWN
         elif self.state.startswith('COUNT_') or self.state == 'PLAYING':
             if self.state.startswith('COUNT_'):
                 val = self.state.split('_')[1]
@@ -922,7 +886,7 @@ class FogRunGame:
                 self._render_maze(self.p1, override_full=False)
                 self._render_maze(self.p2, override_full=False)
 
-        # 7. ANIMATII CÂȘTIGARE RUNDĂ
+        # WINNER ANIMATIONS
         elif self.state == 'WIN_REVEAL':
             self._render_maze(self.p1, override_full=True)
             self._render_maze(self.p2, override_full=True)
@@ -955,7 +919,7 @@ class FogRunGame:
                 else:
                     self._transition('TXT_WIN_1', now)
                 
-        # 8. AFIȘĂM "BLUE WON" / "RED WON" (Fără sunete redundante)
+        # SHOW THE WINNER
         elif self.state == 'TXT_WIN_1':
             nume = "CYAN" if self.last_winner == self.p1 else "PINK"
             cul = P1_COLOR if self.last_winner == self.p1 else P2_COLOR
@@ -968,18 +932,18 @@ class FogRunGame:
             if time_in_state > WORD_DUR: 
                 self._transition('SHOW_SCORE_ONLY', now)
                 
-        # 9. AFIȘĂM DIRECT SCORUL PENTRU TIMP PRELUNGIT (4.0 Secunde)
+        # SHOW THE SCORE
         elif self.state == 'SHOW_SCORE_ONLY':
             self._draw_thin_large_text(str(self.p1.score), 10, P1_COLOR)
             self._draw_thin_large_text("-", 16, WHT)
             self._draw_thin_large_text(str(self.p2.score), 22, P2_COLOR)
             
-            if time_in_state > 2.0:  # <--- AICI AM MODIFICAT DIN 4.0 in 2.0
+            if time_in_state > 2.0: 
                 self._transition('INTERACTIVE_BREAK', now)
                 self.ripples.clear()
                 self.last_touches = set(self.engine.get_touches())
                 
-        # 10. PAUZĂ EXACT 5 SECUNDE CU VALURI ACTIVE!
+        # PAUSE
         elif self.state == 'INTERACTIVE_BREAK':
             win_color = P1_COLOR if self.last_winner == self.p1 else P2_COLOR
             dim_win = (win_color[0]//8, win_color[1]//8, win_color[2]//8) 
@@ -1007,7 +971,6 @@ class FogRunGame:
                     self.generate_new_round()
                     self._transition('CLEAR_SCREEN_05', now)
 
-        # STINGE ECRANUL TIMP DE 0.5 SECUNDE PENTRU TRANZIȚIE CURATĂ
         elif self.state == 'CLEAR_SCREEN_05':
             if time_in_state > 0.5:
                 self._transition('PRE_COUNT', now)
