@@ -1,8 +1,8 @@
 """
 Evil Eye Game Controller
 ========================
-Simulator mode  : python3 Simulator.py  →  python3 evil_eye_game.py
-Hardware mode   : python3 evil_eye_game.py, use "Discover" on the setup
+Simulator mode  : python3 Simulator.py  then  python3 evil_eye_game.py
+Hardware mode   : run python3 evil_eye_game.py, use "Discover" on the setup
                   screen to find the real device on the LAN, then START.
 
 Hardware layout (from wiki):
@@ -14,7 +14,7 @@ Hardware layout (from wiki):
 Network (real hardware):
     Send light commands → device UDP :4626   (4-packet sequence, 8 ms gaps)
     Receive button events ← device UDP :7800  (687-byte packets, 0x88 header)
-    Discovery: send 0x67 packet to 169.254.182.44:4626, listen on :7800
+    Discovery            → 169.254.182.44 UDP :4626 (0x67 packet), listen on :7800
 
 Channels / Teams:
     ch1 = North wall  -> Team A
@@ -42,11 +42,19 @@ Game rules:
       - EASY: 10 s cycle (6 s active red, 4 s yellow warning on next wall).
         HARD:  6 s cycle (4 s active red, 2 s yellow warning on next wall).
       - Idle eyes (not the current or next) show white.
+      - The eye LED (LED 0) shows motion. If all players of a team are standing
+        on their own walls while the eye is open on one of those walls, that team
+        LOSES immediately (the eye "sees" them all).
       - Eye-elimination: if the number of triggered eye sensors on a team's walls
         equals or exceeds the team's player count, that team loses.
 """
 
-import os, sys, random, socket, threading, time, queue
+import os
+import sys
+import random
+import socket
+import threading
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
@@ -57,38 +65,42 @@ from Controller import LightService, LEDS_PER_CHANNEL
 
 # ── Constants ────────────────────────────────────────────────────────────────
 GAME_DURATION_SEC  = 300
-EYE_CYCLE_HARD     = 6
-EYE_WARN_HARD      = 2
+# Eye timing per difficulty
+EYE_CYCLE_HARD     = 6    # total cycle length (seconds)
+EYE_WARN_HARD      = 2    # warning (yellow) phase before move (seconds)
 EYE_CYCLE_EASY     = 10
 EYE_WARN_EASY      = 4
-OPENING_SOLID_SEC  = 6.7
-OPENING_FLASH_SEC  = 2.0
+# Opening sequence timing
+OPENING_SOLID_SEC  = 6.7  # solid team-colour phase before flashing
+OPENING_FLASH_SEC  = 2.0  # flash + first-eye-warning phase before game starts
 TOTAL_POINTS       = 7
-MAX_MAP_POINTS     = 2
-MAX_MAP_POWERUPS   = 1
-HIDE_DURATION_SEC  = 5
+MAX_MAP_POINTS     = 2   # active point slots per team
+MAX_MAP_POWERUPS   = 1   # active power-up slots per team
 
 ALL_CHANNELS = [1, 2, 3, 4]
-TEAM_A_CH    = [1, 2]
-TEAM_B_CH    = [3, 4]
+TEAM_A_CH    = [1, 2]   # North, East
+TEAM_B_CH    = [3, 4]   # South, West
 TEAM_CH      = {0: TEAM_A_CH, 1: TEAM_B_CH}
 WALL_NAME    = {1: "North", 2: "East", 3: "South", 4: "West"}
 
+# Power-up pools by difficulty
 POWERUP_POOL_EASY = ["redirect", "redirect", "redirect"]
 POWERUP_POOL_HARD = ["redirect", "redirect", "lock", "hide", "hide"]
 
+HIDE_DURATION_SEC = 5   # seconds opponent tiles stay blacked-out
+
 # LED colours (r, g, b)
-C_OFF         = (0,   0,   0)
-C_POINT       = (255, 220,  0)
-C_PU_REDIRECT = (255,   0,  0)
-C_PU_LOCK     = (  0, 100, 255)
-C_PU_HIDE     = (180,   0, 255)
-C_EYE_IDLE    = (255, 255, 255)
-C_EYE_WARN    = (255, 220,  0)
-C_EYE_ON      = (255,   0,  0)
-C_HIDDEN      = (  0,   0,  0)
-C_IDLE_A      = ( 40,  40, 40)
-C_IDLE_B      = ( 40,  40, 40)
+C_OFF        = (0,   0,   0)
+C_POINT      = (255, 220, 0)    # yellow       – point tile
+C_PU_REDIRECT= (255, 0,   0)    # red          – redirect power-up
+C_PU_LOCK    = (0,   100, 255)  # blue         – lock power-up
+C_PU_HIDE    = (180, 0,   255)  # purple       – hide power-up
+C_EYE_IDLE   = (255, 255, 255)  # white        – idle eye (off-cycle)
+C_EYE_WARN   = (255, 220, 0)    # yellow       – warning: eye about to move here
+C_EYE_ON     = (255, 0,   0)    # bright red   – active eye (open, locked, or redirected)
+C_HIDDEN     = (0,   0,   0)    # off          – tile blacked out by hide PU
+C_IDLE_A     = (40,  40,  40)   # dim white    – Team A idle tile
+C_IDLE_B     = (40,  40,  40)   # dim white    – Team B idle tile
 
 POWERUP_COLOR = {
     "redirect": C_PU_REDIRECT,
@@ -104,14 +116,14 @@ COL_B = "#00ff73"
 GOLD  = "#ffd000"
 DIM   = "#3a4050"
 WHITE = "#dde2ee"
-RED   = "#ff3333"
+RED   = "#ff0000"
 
-# Known hardware IP for discovery
+# Known hardware handshake IP (link-local)
 HARDWARE_IP = "169.254.182.44"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Protocol helpers (self-contained, no Controller dependency for discovery)
+# Discovery helpers  (ported from Team_collect.py – known to work with hardware)
 # ─────────────────────────────────────────────────────────────────────────────
 _PASSWORD_ARRAY = [
     35, 63, 187, 69, 107, 178, 92, 76, 39, 69, 205, 37, 223, 255, 165, 231,
@@ -159,17 +171,21 @@ def _get_local_interfaces():
                 results.append(("default", ip, "255.255.255.255"))
         except Exception:
             pass
+    # Always offer loopback for simulator
     results.append(("loopback (simulator)", "127.0.0.1", "127.0.0.1"))
     return results
 
 
-def _run_discovery_async(bind_ip: str, broadcast_ip: str, callback, timeout: float = 3.0):
+def _run_discovery_async(local_ip: str, callback, timeout: float = 3.0):
     """
-    Non-blocking discovery: runs in a thread, calls callback(found_ip | None).
-    Replicates the reference run_discovery_flow() exactly:
-      - Builds a 0x67 discovery packet
-      - Sends to broadcast_ip:4626
-      - Listens on :7800 for a 0x68 response matching rand1/rand2
+    Non-blocking discovery that replicates Team_collect.py run_discovery_flow()
+    exactly:
+      - Binds on local_ip:7800
+      - Sends the 0x67 discovery packet to HARDWARE_IP:4626
+      - Listens for a matching 0x68 response
+      - Calls callback(found_ip_str | None) on the result
+
+    For the simulator, local_ip == "127.0.0.1" → target is also 127.0.0.1.
     """
     def _work():
         rand1, rand2 = random.randint(0, 127), random.randint(0, 127)
@@ -183,10 +199,9 @@ def _run_discovery_async(bind_ip: str, broadcast_ip: str, callback, timeout: flo
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.settimeout(0.5)
 
-        # Bind on the local interface so replies find us
-        local_bind = bind_ip if bind_ip != "127.0.0.1" else "0.0.0.0"
+        bind_ip = local_ip if local_ip != "127.0.0.1" else "0.0.0.0"
         try:
-            sock.bind((local_bind, 7800))
+            sock.bind((bind_ip, 7800))
         except OSError:
             try:
                 sock.bind(("0.0.0.0", 7800))
@@ -195,8 +210,10 @@ def _run_discovery_async(bind_ip: str, broadcast_ip: str, callback, timeout: flo
                 callback(None)
                 return
 
+        # Target: known hardware handshake IP, or loopback for simulator
+        target = HARDWARE_IP if local_ip != "127.0.0.1" else "127.0.0.1"
         try:
-            sock.sendto(bytes(pkt), (broadcast_ip, 4626))
+            sock.sendto(bytes(pkt), (target, 4626))
         except OSError:
             sock.close()
             callback(None)
@@ -222,103 +239,23 @@ def _run_discovery_async(bind_ip: str, broadcast_ip: str, callback, timeout: flo
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Wall canvas widget  (rich visual, same style as Simulator / Team_collect)
-# ─────────────────────────────────────────────────────────────────────────────
-class WallCanvas(tk.Canvas):
-    """Renders one wall: 1 circular eye + 10 rectangular pressure tiles."""
-    ROWS = 3
-    COLS = 5
-
-    def __init__(self, parent, channel, team_col, **kwargs):
-        super().__init__(parent, bg="#111", highlightthickness=0, **kwargs)
-        self._ch        = channel
-        self._team_col  = team_col   # hex string for label colour
-        self._colors    = [(0, 0, 0)] * LEDS_PER_CHANNEL
-        self._items     = {}
-        self._labels    = {}
-        self.bind("<Configure>", self._redraw)
-
-    # ── Public API ────────────────────────────────────────────────────────────
-    def set_color(self, index, r, g, b):
-        self._colors[index] = (r, g, b)
-        self._apply(index)
-
-    # ── Internal drawing ──────────────────────────────────────────────────────
-    def _cell(self, idx, w, h, pad):
-        cw = (w - 2 * pad) / self.COLS
-        ch = (h - 2 * pad) / self.ROWS
-        if idx == 0:
-            cx, cy = w / 2, pad + ch * 0.5
-            r = min(cw, ch) * 0.38
-            return (cx - r, cy - r, cx + r, cy + r)
-        btn = idx - 1
-        row, col = btn // 5 + 1, btn % 5
-        x1 = pad + col * cw + cw * 0.07
-        y1 = pad + row * ch + ch * 0.07
-        return (x1, y1, x1 + cw * 0.86, y1 + ch * 0.86)
-
-    def _apply(self, index):
-        if index not in self._items:
-            return
-        r, g, b = self._colors[index]
-        bright = r or g or b
-        if index == 0:
-            fill    = f"#{r:02x}{g:02x}{b:02x}" if bright else "black"
-            outline = fill if bright else "#ff2222"
-            self.itemconfig(self._items[index], fill=fill, outline=outline)
-        else:
-            fill    = f"#{r:02x}{g:02x}{b:02x}" if bright else "#0a0a0a"
-            outline = fill if bright else "#1a1a1a"
-            self.itemconfig(self._items[index], fill=fill, outline=outline)
-
-    def _redraw(self, _=None):
-        self.delete("all")
-        self._items.clear()
-        w, h = self.winfo_width(), self.winfo_height()
-        if w < 10 or h < 10:
-            return
-        pad  = max(6, min(w, h) * 0.04)
-        cw   = (w - 2 * pad) / self.COLS
-        ch_h = (h - 2 * pad) / self.ROWS
-        fs   = max(7, int(min(cw, ch_h) * 0.22))
-
-        # Eye (LED 0)
-        x1, y1, x2, y2 = self._cell(0, w, h, pad)
-        halo = max(4, (x2 - x1) * 0.14)
-        self.create_oval(x1 - halo, y1 - halo, x2 + halo, y2 + halo,
-                         fill="#111", outline="#333", width=1)
-        self._items[0] = self.create_oval(x1, y1, x2, y2,
-                         fill="black", outline="#ff2222",
-                         width=max(2, int(halo * 0.5)))
-        self.create_text(w / 2, y2 + max(4, halo), text="EYE",
-                         fill="#555", font=("Consolas", max(6, fs - 1)))
-
-        # Tiles (LEDs 1-10)
-        for i in range(1, 11):
-            x1, y1, x2, y2 = self._cell(i, w, h, pad)
-            self._items[i] = self.create_rectangle(
-                x1, y1, x2, y2, fill="#0a0a0a", outline="#1a1a1a",
-                width=max(1, int((x2 - x1) * 0.04)))
-            self.create_text((x1 + x2) / 2, (y1 + y2) / 2, text=str(i),
-                             fill="#333", font=("Consolas", fs, "bold"))
-            self._apply(i)
-        self._apply(0)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Game logic
 # ─────────────────────────────────────────────────────────────────────────────
 class GameState:
+    """
+    All mutable game state lives here.
+    Methods return plain dicts so the UI can react without digging into internals.
+    """
     def __init__(self):
-        self.difficulty  = "hard"
-        self.team_sizes  = {0: 2, 1: 2}
+        self.difficulty   = "hard"   # "easy" | "hard"
+        self.team_sizes   = {0: 2, 1: 2}  # number of players per team
         self.reset()
 
     def reset(self):
-        self.running    = False
-        self.winner     = None
-        self.score      = {0: 0, 1: 0}
-        self.start_time = None
+        self.running     = False
+        self.winner      = None       # None | 0 | 1 | "draw"
+        self.score       = {0: 0, 1: 0}
+        self.start_time  = None
 
         pool = POWERUP_POOL_EASY if self.difficulty == "easy" else POWERUP_POOL_HARD
         self.pool_points   = {0: TOTAL_POINTS, 1: TOTAL_POINTS}
@@ -327,19 +264,29 @@ class GameState:
             1: random.sample(pool, len(pool)),
         }
 
-        self.map_items: dict = {}   # (ch, led) -> {"type", "sub", "owner"}
-        self.eye_channel         = None
-        self.eye_locked          = False
-        self.eye_redirect        = False
-        self.eye_warning_channel = None
-        self.hidden_team: int | None = None
-        self.pts_taken_from = {0: 0, 1: 0}
-        self.eye_triggered: set = set()
+        # Active items on the map: (ch, led) -> {"type": "point"|"powerup", "sub": str|None, "owner": team}
+        self.map_items: dict = {}
 
+        # Eye state
+        self.eye_channel  = None   # which channel currently has the eye open
+        self.eye_locked   = False  # if True, skip the next natural rotation
+        self.eye_redirect = False  # if True, eye was redirected this cycle
+        self.eye_warning_channel = None  # channel showing yellow warning (next eye)
+
+        # Hide state: which team's tiles are currently hidden (blacked-out), or None
+        self.hidden_team: int | None = None
+
+        # Points claimed from each team's walls (win condition tracker)
+        self.pts_taken_from = {0: 0, 1: 0}
+
+        # Eye sensors currently triggered per channel (for elimination check)
+        self.eye_triggered: set = set()  # set of ch values
+
+    # ── Team helpers ──────────────────────────────────────────────────────────
     def ch_team(self, ch):
         return 0 if ch in TEAM_A_CH else 1
 
-    def _free_tiles(self, team):
+    def _free_tiles_for(self, team):
         occupied = set(self.map_items)
         return [
             (ch, led)
@@ -348,16 +295,24 @@ class GameState:
             if (ch, led) not in occupied
         ]
 
+    # ── Spawning ──────────────────────────────────────────────────────────────
     def spawn_for(self, team):
+        """Fill up to MAX slots for `team` on their own walls. Returns new positions."""
         spawned = []
-        cur_pts = sum(1 for v in self.map_items.values()
-                      if v["owner"] == team and v["type"] == "point")
-        cur_pow = sum(1 for v in self.map_items.values()
-                      if v["owner"] == team and v["type"] == "powerup")
+
+        cur_pts = sum(
+            1 for v in self.map_items.values()
+            if v["owner"] == team and v["type"] == "point"
+        )
+        cur_pow = sum(
+            1 for v in self.map_items.values()
+            if v["owner"] == team and v["type"] == "powerup"
+        )
 
         while cur_pts < MAX_MAP_POINTS and self.pool_points[team] > 0:
-            free = self._free_tiles(team)
-            if not free: break
+            free = self._free_tiles_for(team)
+            if not free:
+                break
             pos = random.choice(free)
             self.map_items[pos] = {"type": "point", "sub": None, "owner": team}
             self.pool_points[team] -= 1
@@ -365,8 +320,9 @@ class GameState:
             spawned.append(pos)
 
         while cur_pow < MAX_MAP_POWERUPS and self.pool_powerups[team]:
-            free = self._free_tiles(team)
-            if not free: break
+            free = self._free_tiles_for(team)
+            if not free:
+                break
             pos = random.choice(free)
             sub = self.pool_powerups[team].pop(0)
             self.map_items[pos] = {"type": "powerup", "sub": sub, "owner": team}
@@ -378,18 +334,25 @@ class GameState:
     def spawn_all(self):
         return self.spawn_for(0) + self.spawn_for(1)
 
+    # ── Claiming ──────────────────────────────────────────────────────────────
     def claim(self, ch, led):
-        if not self.running: return None
+        """Process a tile press. Returns an event dict or None."""
+        if not self.running:
+            return None
         pos     = (ch, led)
         presser = self.ch_team(ch)
 
+        # Tiles on a hidden team's walls cannot be pressed (they can't see them)
         if self.hidden_team is not None and ch in TEAM_CH[self.hidden_team]:
             return {"event": "hidden", "ch": ch, "led": led}
 
         item = self.map_items.get(pos)
-        if item is None: return None
+        if item is None:
+            return None
 
         wall_owner = item["owner"]
+
+        # Power-ups are only claimable by the owning team
         if item["type"] == "powerup" and presser != wall_owner:
             return {"event": "blocked", "ch": ch, "led": led, "claimer": presser}
 
@@ -399,18 +362,33 @@ class GameState:
             self.score[presser] += 1
             self.pts_taken_from[wall_owner] += 1
             self.spawn_for(wall_owner)
-            if self.pts_taken_from[0] >= TOTAL_POINTS or self.pts_taken_from[1] >= TOTAL_POINTS:
-                self._end()
-            return {"event": "point", "claimer": presser, "wall_owner": wall_owner,
-                    "ch": ch, "led": led}
 
+            if self.pts_taken_from[0] >= TOTAL_POINTS or \
+               self.pts_taken_from[1] >= TOTAL_POINTS:
+                self._end()
+
+            return {
+                "event": "point",
+                "claimer": presser,
+                "wall_owner": wall_owner,
+                "ch": ch,
+                "led": led,
+            }
+
+        # Power-up claimed by owning team
         self._apply_powerup(item["sub"], presser)
         self.spawn_for(wall_owner)
-        return {"event": "powerup", "sub": item["sub"],
-                "claimer": presser, "ch": ch, "led": led}
+        return {
+            "event": "powerup",
+            "sub": item["sub"],
+            "claimer": presser,
+            "ch": ch,
+            "led": led,
+        }
 
     def _apply_powerup(self, sub, team):
         opp_ch = TEAM_CH[1 - team]
+
         if sub == "redirect":
             choices = list(opp_ch)
             if self.eye_channel in choices and len(choices) > 1:
@@ -418,11 +396,14 @@ class GameState:
             self.eye_channel         = random.choice(choices)
             self.eye_redirect        = True
             self.eye_warning_channel = None
+
         elif sub == "lock":
             self.eye_locked = True
+
         elif sub == "hide":
             self.hidden_team = 1 - team
 
+    # ── Eye sensor (motion detection) ─────────────────────────────────────────
     def eye_sensor_changed(self, ch, is_triggered):
         if is_triggered:
             self.eye_triggered.add(ch)
@@ -431,21 +412,35 @@ class GameState:
         return self._check_eye_elimination()
 
     def _check_eye_elimination(self):
-        if not self.running or self.eye_channel is None: return None
+        if not self.running:
+            return None
+        if self.eye_channel is None:
+            return None
+
         for team in (0, 1):
             team_walls = TEAM_CH[team]
-            if self.eye_channel not in team_walls: continue
-            triggered_count = sum(1 for ch in team_walls if ch in self.eye_triggered)
+            if self.eye_channel not in team_walls:
+                continue
+            triggered_count = sum(
+                1 for ch in team_walls if ch in self.eye_triggered
+            )
             if triggered_count >= self.team_sizes[team]:
-                self.winner  = 1 - team
+                loser = team
+                self.winner = 1 - loser
                 self.running = False
-                return {"event": "eye_elimination", "loser": team, "winner": 1 - team}
+                return {
+                    "event": "eye_elimination",
+                    "loser": loser,
+                    "winner": 1 - loser,
+                }
         return None
 
+    # ── Eye cycle ─────────────────────────────────────────────────────────────
     def pick_next_eye(self):
+        old = self.eye_channel
         choices = ALL_CHANNELS[:]
-        if self.eye_channel in choices and len(choices) > 1:
-            choices.remove(self.eye_channel)
+        if old in choices and len(choices) > 1:
+            choices.remove(old)
         return random.choice(choices)
 
     def cycle_eyes(self, next_ch=None):
@@ -454,26 +449,32 @@ class GameState:
             self.eye_redirect        = False
             self.eye_warning_channel = None
             return {"action": "locked", "channel": self.eye_channel}
+
+        old = self.eye_channel
         self.eye_channel         = next_ch if next_ch is not None else self.pick_next_eye()
         self.eye_redirect        = False
         self.eye_warning_channel = None
-        return {"action": "moved", "channel": self.eye_channel}
+        return {"action": "moved", "old": old, "channel": self.eye_channel}
 
+    # ── End ───────────────────────────────────────────────────────────────────
     def _end(self, timeout=False):
         self.running = False
+        a, b = self.score[0], self.score[1]
         if self.winner is None:
-            a, b = self.score[0], self.score[1]
             self.winner = "draw" if a == b else (0 if a > b else 1)
 
     def remaining(self):
-        if not self.start_time: return GAME_DURATION_SEC
+        if not self.start_time:
+            return GAME_DURATION_SEC
         return max(0.0, GAME_DURATION_SEC - (time.time() - self.start_time))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Setup screen
+# Setup screen (difficulty + player count + device discovery)
 # ─────────────────────────────────────────────────────────────────────────────
 class SetupScreen(tk.Frame):
+    """Shown before the game starts so players can configure the match."""
+
     def __init__(self, master, on_start):
         super().__init__(master, bg=BG)
         self._on_start = on_start
@@ -482,126 +483,138 @@ class SetupScreen(tk.Frame):
 
     def _build(self):
         tk.Label(self, text="👁  EVIL EYE", fg=GOLD, bg=BG,
-                 font=("Consolas", 28, "bold")).pack(pady=(30, 4))
+                 font=("Courier New", 28, "bold")).pack(pady=(30, 4))
         tk.Label(self, text="Configure your match", fg=DIM, bg=BG,
-                 font=("Consolas", 11)).pack(pady=(0, 20))
+                 font=("Courier New", 11)).pack(pady=(0, 24))
 
         # ── Difficulty ────────────────────────────────────────────────────────
         tk.Label(self, text="DIFFICULTY", fg=WHITE, bg=BG,
-                 font=("Consolas", 10, "bold")).pack()
+                 font=("Courier New", 10, "bold")).pack()
+
         self._diff = tk.StringVar(value="hard")
         diff_frame = tk.Frame(self, bg=BG)
         diff_frame.pack(pady=6)
+
         for label, value, desc in [
             ("EASY", "easy", "Power-ups: Redirect ×3 only"),
             ("HARD", "hard", "Power-ups: Redirect ×2, Lock ×1, Hide ×2"),
         ]:
             col = COL_B if value == "easy" else RED
-            f   = tk.Frame(diff_frame, bg=PANEL, bd=1, relief="solid")
+            f = tk.Frame(diff_frame, bg=PANEL, bd=1, relief="solid")
             f.pack(side="left", padx=10, ipadx=10, ipady=6)
-            tk.Radiobutton(f, text=label, variable=self._diff, value=value,
-                           fg=col, bg=PANEL, selectcolor=PANEL,
-                           activebackground=PANEL,
-                           font=("Consolas", 14, "bold"), indicatoron=False,
-                           relief="flat", padx=16, pady=6).pack()
+            tk.Radiobutton(
+                f, text=label, variable=self._diff, value=value,
+                fg=col, bg=PANEL, selectcolor=PANEL, activebackground=PANEL,
+                font=("Courier New", 14, "bold"), indicatoron=False,
+                relief="flat", padx=16, pady=6,
+            ).pack()
             tk.Label(f, text=desc, fg=DIM, bg=PANEL,
-                     font=("Consolas", 7)).pack()
+                     font=("Courier New", 7)).pack()
 
-        # ── Player count ──────────────────────────────────────────────────────
+        # ── Player count per team ─────────────────────────────────────────────
         tk.Label(self, text="PLAYERS PER TEAM", fg=WHITE, bg=BG,
-                 font=("Consolas", 10, "bold")).pack(pady=(20, 2))
-        tk.Label(self,
-                 text="(Eye elimination triggers when this many players are seen at once)",
-                 fg=DIM, bg=BG, font=("Consolas", 8)).pack()
+                 font=("Courier New", 10, "bold")).pack(pady=(20, 4))
+        tk.Label(
+            self,
+            text="(Eye elimination triggers when this many players are seen at once)",
+            fg=DIM, bg=BG, font=("Courier New", 8),
+        ).pack()
+
         counts_frame = tk.Frame(self, bg=BG)
         counts_frame.pack(pady=10)
+
         self._team_a_size = tk.IntVar(value=2)
         self._team_b_size = tk.IntVar(value=2)
+
         for label, col, var in [
-            ("Team A  (North+East)", COL_A, self._team_a_size),
-            ("Team B  (South+West)", COL_B, self._team_b_size),
+            ("Team A (North+East)", COL_A, self._team_a_size),
+            ("Team B (South+West)", COL_B, self._team_b_size),
         ]:
             f = tk.Frame(counts_frame, bg=PANEL, bd=1, relief="solid")
             f.pack(side="left", padx=14, ipadx=12, ipady=8)
             tk.Label(f, text=label, fg=col, bg=PANEL,
-                     font=("Consolas", 9, "bold")).pack()
-            tk.Spinbox(f, from_=1, to=10, textvariable=var, width=4,
-                       bg=PANEL, fg=WHITE, font=("Consolas", 16, "bold"),
-                       buttonbackground=PANEL, insertbackground=WHITE,
-                       justify="center", relief="flat").pack(pady=4)
+                     font=("Courier New", 9, "bold")).pack()
+            spin = tk.Spinbox(
+                f, from_=1, to=10, textvariable=var, width=4,
+                bg=PANEL, fg=WHITE, font=("Courier New", 16, "bold"),
+                buttonbackground=PANEL, insertbackground=WHITE,
+                justify="center", relief="flat",
+            )
+            spin.pack(pady=4)
             tk.Label(f, text="players", fg=DIM, bg=PANEL,
-                     font=("Consolas", 8)).pack()
+                     font=("Courier New", 8)).pack()
 
-        # ── Power-up legend ───────────────────────────────────────────────────
+        # ── Powerup legend ────────────────────────────────────────────────────
         tk.Label(self, text="POWER-UP COLOURS", fg=WHITE, bg=BG,
-                 font=("Consolas", 9, "bold")).pack(pady=(16, 4))
+                 font=("Courier New", 9, "bold")).pack(pady=(16, 4))
+
         legend = tk.Frame(self, bg=BG)
         legend.pack()
         for col, name, tip in [
             ("#ff0000", "Redirect", "Moves eye to opponent's wall"),
-            ("#0064ff", "Lock",     "Eye stays extra cycle (Hard)"),
-            ("#b400ff", "Hide",     "Blinds opponent tiles 5 s (Hard)"),
-            ("#ffdc00", "Point",    "Score a point — anyone can grab"),
-            ("#ffffff", "Idle",     "Normal pressure tile"),
+            ("#0064ff", "Lock",     "Eye stays for an extra cycle (Hard only)"),
+            ("#b400ff", "Hide",     "Blinds opponent tiles for 5 s (Hard only)"),
+            ("#ffdc00", "Point",    "Score a point — anyone can grab these"),
+            ("#ffffff", "Normal",   "Idle pressure tile"),
         ]:
             f = tk.Frame(legend, bg=BG)
             f.pack(side="left", padx=10)
             tk.Label(f, text="■", fg=col, bg=BG,
-                     font=("Consolas", 18)).pack()
+                     font=("Courier New", 18)).pack()
             tk.Label(f, text=name, fg=WHITE, bg=BG,
-                     font=("Consolas", 8, "bold")).pack()
+                     font=("Courier New", 8, "bold")).pack()
             tk.Label(f, text=tip, fg=DIM, bg=BG,
-                     font=("Consolas", 7), wraplength=110,
+                     font=("Courier New", 7), wraplength=110,
                      justify="center").pack()
 
-        # ── Network / Device ──────────────────────────────────────────────────
+        # ── Network / Device section ──────────────────────────────────────────
         tk.Label(self, text="NETWORK & DEVICE", fg=WHITE, bg=BG,
-                 font=("Consolas", 9, "bold")).pack(pady=(18, 4))
+                 font=("Courier New", 9, "bold")).pack(pady=(18, 4))
+
         net_frame = tk.Frame(self, bg=PANEL, bd=1, relief="solid")
         net_frame.pack(padx=30, fill="x")
 
-        # Interface selector row
+        # Row 1: interface selector
         row1 = tk.Frame(net_frame, bg=PANEL)
         row1.pack(fill="x", padx=10, pady=(8, 4))
         tk.Label(row1, text="Interface:", fg=DIM, bg=PANEL,
-                 font=("Consolas", 9)).pack(side="left")
-        self._iface_var   = tk.StringVar()
+                 font=("Courier New", 9)).pack(side="left")
+        self._iface_var = tk.StringVar()
         self._iface_combo = ttk.Combobox(row1, textvariable=self._iface_var,
-                                         state="readonly", width=36,
-                                         font=("Consolas", 9))
+                                         state="readonly", width=34,
+                                         font=("Courier New", 9))
         self._iface_combo.pack(side="left", padx=(6, 4))
-        tk.Button(row1, text="↺ Refresh",
-                  command=self._refresh_interfaces,
-                  bg="#222", fg=DIM, font=("Consolas", 8),
+        tk.Button(row1, text="↺ Refresh", command=self._refresh_interfaces,
+                  bg="#222", fg=DIM, font=("Courier New", 8),
                   relief="flat", padx=6, pady=2).pack(side="left")
         self._refresh_interfaces()
 
-        # Device IP row
+        # Row 2: device IP (manual or filled by discovery)
         row2 = tk.Frame(net_frame, bg=PANEL)
         row2.pack(fill="x", padx=10, pady=4)
         tk.Label(row2, text="Device IP: ", fg=DIM, bg=PANEL,
-                 font=("Consolas", 9)).pack(side="left")
+                 font=("Courier New", 9)).pack(side="left")
         self._ip_var = tk.StringVar(value="127.0.0.1")
         tk.Entry(row2, textvariable=self._ip_var, width=18,
                  bg="#0a0a0a", fg=WHITE, insertbackground=WHITE,
-                 font=("Consolas", 9), relief="flat").pack(side="left", padx=(0, 6))
-        tk.Button(row2, text="🔍 Discover",
-                  command=self._discover,
+                 font=("Courier New", 9), relief="flat").pack(side="left", padx=(0, 6))
+        tk.Button(row2, text="🔍 Discover", command=self._discover,
                   bg="#1a2a3a", fg=COL_A, activebackground="#253545",
-                  font=("Consolas", 9, "bold"), relief="flat",
+                  font=("Courier New", 9, "bold"), relief="flat",
                   padx=10, pady=3).pack(side="left")
 
-        # Status label
+        # Row 3: discovery status label
         self._discover_status = tk.Label(net_frame, text="", fg=DIM, bg=PANEL,
-                                         font=("Consolas", 8), anchor="w")
+                                         font=("Courier New", 8), anchor="w")
         self._discover_status.pack(fill="x", padx=10, pady=(0, 8))
 
         # ── Start button ──────────────────────────────────────────────────────
-        tk.Button(self, text="▶  START GAME",
-                  command=self._start,
-                  bg="#1a3a1a", fg=COL_B, activebackground="#2a5a2a",
-                  font=("Consolas", 14, "bold"), relief="flat",
-                  padx=18, pady=10).pack(pady=20)
+        tk.Button(
+            self, text="▶  START GAME",
+            command=self._start,
+            bg="#1a3a1a", fg=COL_B, activebackground="#2a5a2a",
+            font=("Courier New", 14, "bold"), relief="flat", padx=18, pady=10,
+        ).pack(pady=20)
 
     # ── Network helpers ───────────────────────────────────────────────────────
     def _refresh_interfaces(self):
@@ -610,8 +623,8 @@ class SetupScreen(tk.Frame):
         labels = [f"{name}  –  {ip}" for name, ip, _ in ifaces]
         self._iface_combo["values"] = labels if labels else ["(none found)"]
         if labels:
-            # Auto-select the link-local interface (169.254.x.x) for hardware,
-            # or loopback for simulator, in that priority order.
+            # Auto-select the link-local interface if present (hardware),
+            # otherwise default to first entry
             idx = 0
             for i, (_, ip, _) in enumerate(ifaces):
                 if ip.startswith("169.254."):
@@ -636,9 +649,6 @@ class SetupScreen(tk.Frame):
             text=f"Scanning on {name} ({ip}) …", fg=DIM)
         self.update_idletasks()
 
-        # Use the known hardware IP if the interface is link-local, else broadcast
-        target = HARDWARE_IP if ip.startswith("169.254.") else bcast
-
         def on_result(found_ip):
             def _update():
                 if found_ip:
@@ -650,7 +660,7 @@ class SetupScreen(tk.Frame):
                         text="❌ No device found. Check cable / interface.", fg=RED)
             self.after(0, _update)
 
-        _run_discovery_async(ip, target, on_result)
+        _run_discovery_async(ip, on_result)
 
     def _start(self):
         self._on_start(
@@ -670,126 +680,142 @@ class GameController(tk.Tk):
         self.title("Evil Eye — Game Controller")
         self.configure(bg=BG)
         self.resizable(True, True)
-        self.minsize(780, 600)
+        self.minsize(620, 520)
 
         self.gs  = GameState()
         self.svc = LightService()
         self.svc.on_button_state = self._on_hw_button
         self.svc.on_status       = lambda m: None
 
-        self._eye_after           = None
-        self._tick_after          = None
-        self._hide_after          = None
-        self._opening_flash_after = None
-        self._next_eye_ch         = None
-
-        self._wall_canvases: dict[int, WallCanvas] = {}
+        self._eye_after          = None
+        self._tick_after         = None
+        self._hide_after         = None   # timer handle for the hide power-up reveal
+        self._opening_flash_after= None   # timer handle during opening sequence
+        self._next_eye_ch        = None   # pre-picked next eye channel for warning
 
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ── UI ────────────────────────────────────────────────────────────────────
     def _build_ui(self):
+        # Setup screen (shown first)
         self._setup_frame = SetupScreen(self, self._on_setup_start)
         self._setup_frame.pack(fill="both", expand=True)
 
+        # Game screen (hidden until game starts)
         self._game_frame = tk.Frame(self, bg=BG)
         self._build_game_ui(self._game_frame)
 
     def _build_game_ui(self, parent):
         # ── Score header ──────────────────────────────────────────────────────
         hdr = tk.Frame(parent, bg=BG)
-        hdr.pack(fill="x", padx=14, pady=(10, 2))
+        hdr.pack(fill="x", padx=14, pady=(12, 2))
 
         self.lbl_a = tk.Label(hdr, text="TEAM A  0", fg=COL_A, bg=BG,
-                              font=("Consolas", 20, "bold"))
+                              font=("Courier New", 20, "bold"))
         self.lbl_a.pack(side="left")
 
         self.lbl_timer = tk.Label(hdr, text="5:00", fg=GOLD, bg=BG,
-                                  font=("Consolas", 26, "bold"))
+                                  font=("Courier New", 26, "bold"))
         self.lbl_timer.pack(side="left", expand=True)
 
         self.lbl_b = tk.Label(hdr, text="0  TEAM B", fg=COL_B, bg=BG,
-                              font=("Consolas", 20, "bold"))
+                              font=("Courier New", 20, "bold"))
         self.lbl_b.pack(side="right")
 
-        # ── Info row ──────────────────────────────────────────────────────────
+        # ── Info row (pools + eye) ─────────────────────────────────────────────
         info_row = tk.Frame(parent, bg=BG)
         info_row.pack(fill="x", padx=14)
 
         self.lbl_pool_a = tk.Label(info_row, text="Pts: 7  PUs: —",
-                                   fg=COL_A, bg=BG, font=("Consolas", 8))
+                                   fg=COL_A, bg=BG, font=("Courier New", 8))
         self.lbl_pool_a.pack(side="left")
         tk.Label(info_row, text="North+East", fg=COL_A, bg=BG,
-                 font=("Consolas", 8)).pack(side="left", padx=6)
+                 font=("Courier New", 8)).pack(side="left", padx=6)
 
         self.lbl_eye = tk.Label(info_row, text="👁  —", fg=GOLD, bg=BG,
-                                font=("Consolas", 8, "bold"))
+                                font=("Courier New", 8, "bold"))
         self.lbl_eye.pack(side="left", expand=True)
 
         tk.Label(info_row, text="South+West", fg=COL_B, bg=BG,
-                 font=("Consolas", 8)).pack(side="right", padx=6)
+                 font=("Courier New", 8)).pack(side="right", padx=6)
         self.lbl_pool_b = tk.Label(info_row, text="Pts: 7  PUs: —",
-                                   fg=COL_B, bg=BG, font=("Consolas", 8))
+                                   fg=COL_B, bg=BG, font=("Courier New", 8))
         self.lbl_pool_b.pack(side="right")
 
+        # ── Difficulty / size display ─────────────────────────────────────────
         self.lbl_meta = tk.Label(parent, text="", fg=DIM, bg=BG,
-                                 font=("Consolas", 8), anchor="center")
+                                 font=("Courier New", 8), anchor="center")
         self.lbl_meta.pack(fill="x", padx=14)
 
-        self.lbl_status = tk.Label(parent, text="Press START to begin.",
-                                   fg=DIM, bg=BG, font=("Consolas", 9), anchor="w")
+        # ── Status bar ────────────────────────────────────────────────────────
+        self.lbl_status = tk.Label(
+            parent, text="Press START to begin.",
+            fg=DIM, bg=BG, font=("Courier New", 9), anchor="w",
+        )
         self.lbl_status.pack(fill="x", padx=14, pady=4)
 
-        # ── 2×2 canvas wall grid ──────────────────────────────────────────────
+        # ── Map overview — 2×2 wall grid ──────────────────────────────────────
         map_outer = tk.Frame(parent, bg=BG)
         map_outer.pack(fill="both", expand=True, padx=14, pady=2)
         for r in range(2): map_outer.rowconfigure(r, weight=1)
         for c in range(2): map_outer.columnconfigure(c, weight=1)
 
+        self.map_labels = {}
         layout = [
-            (1, "North", COL_A, 0, 0),
-            (2, "East",  COL_A, 0, 1),
-            (4, "West",  COL_B, 1, 0),
-            (3, "South", COL_B, 1, 1),
+            (1, "North", 0, 0),
+            (2, "East",  0, 1),
+            (4, "West",  1, 0),
+            (3, "South", 1, 1),
         ]
-        for ch, name, col, row, c in layout:
+        for ch, name, row, col in layout:
+            tc = COL_A if ch in TEAM_A_CH else COL_B
             frm = tk.Frame(map_outer, bg=PANEL, bd=1, relief="solid")
-            frm.grid(row=row, column=c, padx=4, pady=4, sticky="nsew")
-            frm.rowconfigure(1, weight=1)
-            frm.columnconfigure(0, weight=1)
-            tk.Label(frm, text=f"{name}  (ch{ch})",
-                     fg=col, bg=PANEL, font=("Consolas", 8, "bold")).grid(
-                         row=0, column=0, sticky="w", padx=4, pady=(2, 0))
-            cv = WallCanvas(frm, ch, col)
-            cv.grid(row=1, column=0, sticky="nsew", padx=4, pady=(2, 4))
-            self._wall_canvases[ch] = cv
+            frm.grid(row=row, column=col, padx=4, pady=4, sticky="nsew")
+            tk.Label(frm, text=f"{name}  (ch{ch})", fg=tc, bg=PANEL,
+                     font=("Courier New", 8, "bold")).pack(anchor="w", padx=4, pady=(2, 0))
+            row_frm = tk.Frame(frm, bg=PANEL)
+            row_frm.pack(padx=4, pady=(1, 4))
+            for led in range(LEDS_PER_CHANNEL):
+                txt = "EYE" if led == 0 else str(led)
+                lbl = tk.Label(
+                    row_frm, text=txt, fg=DIM, bg="#0a0a0a",
+                    font=("Courier New", 6), width=3,
+                    relief="flat", bd=1, padx=1,
+                )
+                lbl.pack(side="left", padx=1)
+                self.map_labels[(ch, led)] = lbl
 
         # ── Controls ──────────────────────────────────────────────────────────
         ctrl = tk.Frame(parent, bg=BG)
         ctrl.pack(fill="x", padx=14, pady=(4, 2))
-        self.btn_stop = tk.Button(ctrl, text="STOP / BACK TO MENU",
-                                  command=self._stop,
-                                  bg="#3a1010", fg=RED,
-                                  activebackground="#5a2020",
-                                  font=("Consolas", 10, "bold"),
-                                  relief="flat", padx=12, pady=3,
-                                  state="disabled")
+
+        self.btn_stop = tk.Button(
+            ctrl, text="STOP / BACK TO MENU",
+            command=self._stop,
+            bg="#3a1010", fg=RED, activebackground="#5a2020",
+            font=("Courier New", 10, "bold"), relief="flat",
+            padx=12, pady=3, state="disabled",
+        )
         self.btn_stop.pack(side="left", padx=4)
 
         # ── Legend ────────────────────────────────────────────────────────────
         leg = tk.Frame(parent, bg=BG)
         leg.pack(pady=(2, 6))
         for c, t in [
-            ("#ffdc00", "Point"), ("#ff0000", "Redirect"),
-            ("#0064ff", "Lock"),  ("#b400ff", "Hide"),
-            ("#888888", "Hidden"),("#ff0000", "Eye active"),
-            ("#ffdc00", "Eye warn"), ("#ffffff", "Eye idle"),
+            ("#ffdc00", "Point"),
+            ("#ff0000", "Redirect PU"),
+            ("#0064ff", "Lock PU"),
+            ("#b400ff", "Hide PU"),
+            ("#888888", "Tiles hidden"),
+            ("#ff0000", "Eye active"),
+            ("#ffdc00", "Eye warning"),
+            ("#ffffff", "Eye idle"),
         ]:
             tk.Label(leg, text="■", fg=c, bg=BG,
-                     font=("Consolas", 9)).pack(side="left", padx=1)
+                     font=("Courier New", 9)).pack(side="left", padx=1)
             tk.Label(leg, text=t, fg=DIM, bg=BG,
-                     font=("Consolas", 7)).pack(side="left", padx=(0, 6))
+                     font=("Courier New", 7)).pack(side="left", padx=(0, 6))
 
     # ── Setup → Game transition ────────────────────────────────────────────────
     def _on_setup_start(self, difficulty, team_a_size, team_b_size, ip):
@@ -797,37 +823,28 @@ class GameController(tk.Tk):
         self.gs.team_sizes[0] = team_a_size
         self.gs.team_sizes[1] = team_b_size
 
-        # Tell the LightService about the target device and start networking
         self.svc.set_device(ip)
-
-        # For link-local hardware, bind the receiver on the same interface
-        if ip.startswith("169.254.") or ip == HARDWARE_IP:
-            # Find a local 169.254.x.x address and bind there
-            try:
-                import psutil
-                for iface, addrs in psutil.net_if_addrs().items():
-                    for addr in addrs:
-                        if addr.family == socket.AF_INET and addr.address.startswith("169.254."):
-                            self.svc.set_bind_ip(addr.address)
-                            break
-            except Exception:
-                pass
-
         self.svc.start_receiver()
         self.svc.start_polling()
 
         self.gs.reset()
 
+        # Swap to game frame immediately (so map labels exist for _send)
         self._setup_frame.pack_forget()
         self._game_frame.pack(fill="both", expand=True)
 
-        pool_label = ("Easy: Redirect×3 per team"
-                      if difficulty == "easy"
-                      else "Hard: Redirect×2, Lock×1, Hide×2 per team")
+        pool_label = (
+            "Easy: Redirect×3 per team"
+            if difficulty == "easy"
+            else "Hard: Redirect×2, Lock×1, Hide×2 per team"
+        )
         self.lbl_meta.config(
-            text=(f"{pool_label}  |  "
-                  f"Team A: {team_a_size} player(s)  |  "
-                  f"Team B: {team_b_size} player(s)"))
+            text=(
+                f"{pool_label}  |  "
+                f"Team A: {team_a_size} player(s)  |  "
+                f"Team B: {team_b_size} player(s)"
+            )
+        )
         self._update_scores()
         self._update_pool_labels()
         self.lbl_eye.config(text="👁  —")
@@ -835,29 +852,40 @@ class GameController(tk.Tk):
         self._status("Get ready! Identify your walls…")
         self.btn_stop.config(state="normal")
 
-        self._next_eye_ch         = None
+        self._next_eye_ch  = None
         self._opening_flash_after = None
         self._run_opening_sequence()
 
     def _run_opening_sequence(self):
-        C_TEAM_A_OPEN = (255, 0,   0)
-        C_TEAM_B_OPEN = (  0, 0, 255)
+        """
+        Phase 1 (0 → OPENING_SOLID_SEC):   Team A walls solid red, Team B solid blue.
+                                             All eye LEDs white (idle).
+        Phase 2 (last OPENING_FLASH_SEC):   Walls flash their team colour.
+                                             At 2 s before start, first eye goes yellow.
+        Phase 3 (t=0):                      Game starts. First eye turns red. Tiles appear.
+        """
+        C_TEAM_A_OPEN = (255, 0,   0)    # solid red   – Team A identification
+        C_TEAM_B_OPEN = (0,   0,   255)  # solid blue  – Team B identification
 
         solid_ms = int((OPENING_SOLID_SEC - OPENING_FLASH_SEC) * 1000)
         flash_ms = int(OPENING_FLASH_SEC * 1000)
 
+        # ── Phase 1: solid colours ────────────────────────────────────────────
         for ch in range(1, 5):
             col = C_TEAM_A_OPEN if ch in TEAM_A_CH else C_TEAM_B_OPEN
             for led in range(LEDS_PER_CHANNEL):
                 self._send(ch, led, C_EYE_IDLE if led == 0 else col)
 
+        # ── Phase 2 starts after solid_ms ─────────────────────────────────────
         def start_flash():
+            # Pick first eye channel and show yellow warning immediately
             first_eye = random.choice(ALL_CHANNELS)
-            self._next_eye_ch            = first_eye
-            self.gs.eye_warning_channel  = first_eye
+            self._next_eye_ch = first_eye
+            self.gs.eye_warning_channel = first_eye
 
             for ch in range(1, 5):
-                col     = C_TEAM_A_OPEN if ch in TEAM_A_CH else C_TEAM_B_OPEN
+                col = C_TEAM_A_OPEN if ch in TEAM_A_CH else C_TEAM_B_OPEN
+                # Eye LED: yellow on the warned channel, white elsewhere
                 eye_col = C_EYE_WARN if ch == first_eye else C_EYE_IDLE
                 self._send(ch, 0, eye_col)
 
@@ -869,6 +897,7 @@ class GameController(tk.Tk):
 
         def _do_flash(flashes, on, first_eye, col_a, col_b, interval):
             if flashes <= 0:
+                # Phase 3: actually start
                 self.after(0, _start_game, first_eye)
                 return
             for ch in range(1, 5):
@@ -878,21 +907,23 @@ class GameController(tk.Tk):
                     self._send(ch, led, eye_col if led == 0 else tile_col)
             self._opening_flash_after = self.after(
                 interval, _do_flash, flashes - 1, not on,
-                first_eye, col_a, col_b, interval)
+                first_eye, col_a, col_b, interval
+            )
 
         def _start_game(first_eye):
-            self.gs.running              = True
-            self.gs.start_time           = time.time()
+            self.gs.running    = True
+            self.gs.start_time = time.time()
             self.gs.spawn_all()
-            self.gs.eye_channel          = first_eye
-            self.gs.eye_warning_channel  = None
+            self.gs.eye_channel         = first_eye
+            self.gs.eye_warning_channel = None
 
-            self._refresh_leds()
+            self._refresh_leds()   # draws tiles + turns first eye red
             self._update_scores()
             self._update_pool_labels()
             self._update_eye_label()
             self.lbl_timer.config(fg=GOLD)
             self._status("Game on! Claim tiles to score.")
+
             self._schedule_eye()
             self._tick()
 
@@ -907,22 +938,29 @@ class GameController(tk.Tk):
         self.btn_stop.config(state="disabled")
         self.lbl_timer.config(text="5:00", fg=GOLD)
         self.lbl_eye.config(text="👁  —")
+        # Return to setup screen
         self._game_frame.pack_forget()
         self._setup_frame.pack(fill="both", expand=True)
 
     def _cancel_afters(self):
         for attr in ("_eye_after", "_tick_after", "_hide_after", "_opening_flash_after"):
             h = getattr(self, attr, None)
-            if h: self.after_cancel(h)
+            if h:
+                self.after_cancel(h)
             setattr(self, attr, None)
+        # Clear any active hide effect so state is clean on next game
         self.gs.hidden_team = None
 
     # ── LED helpers ───────────────────────────────────────────────────────────
     def _send(self, ch, led, col):
         self.svc.set_led(ch, led, *col)
-        cv = self._wall_canvases.get(ch)
-        if cv:
-            cv.set_color(led, *col)
+        lbl = self.map_labels.get((ch, led))
+        if not lbl:
+            return
+        r, g, b = col
+        bg = f"#{r:02x}{g:02x}{b:02x}" if (r or g or b) else "#0a0a0a"
+        fg = WHITE if (r + g + b) > 60 else DIM
+        lbl.config(bg=bg, fg=fg)
 
     def _refresh_leds(self):
         gs = self.gs
@@ -931,12 +969,15 @@ class GameController(tk.Tk):
             team = gs.ch_team(ch)
             tiles_hidden = (gs.hidden_team is not None and team == gs.hidden_team)
 
-            # Eye (LED 0)
+            # Eye (LED 0) — never hidden by the hide power-up
             if ch == gs.eye_channel:
+                # Active eye — always bright red
                 eye_col = C_EYE_ON
             elif ch == gs.eye_warning_channel:
+                # Next eye warning — yellow
                 eye_col = C_EYE_WARN
             else:
+                # Idle eye — white
                 eye_col = C_EYE_IDLE
             self._send(ch, 0, eye_col)
 
@@ -945,9 +986,9 @@ class GameController(tk.Tk):
                 if tiles_hidden:
                     col = C_HIDDEN
                 else:
-                    pos  = (ch, led)
-                    item = gs.map_items.get(pos)
-                    if item:
+                    pos = (ch, led)
+                    if pos in gs.map_items:
+                        item = gs.map_items[pos]
                         col = C_POINT if item["type"] == "point" \
                               else POWERUP_COLOR.get(item["sub"], C_PU_REDIRECT)
                     else:
@@ -968,25 +1009,31 @@ class GameController(tk.Tk):
 
     def _update_eye_label(self):
         gs = self.gs
-        ch, warn_ch = gs.eye_channel, gs.eye_warning_channel
+        ch = gs.eye_channel
+        warn_ch = gs.eye_warning_channel
         if ch is None and warn_ch is None:
             self.lbl_eye.config(text="👁  —")
             return
         parts = []
         if ch is not None:
             name = WALL_NAME.get(ch, f"W{ch}")
-            tag  = (" [REDIRECTED]" if gs.eye_redirect
-                    else " [LOCKED]"   if gs.eye_locked else "")
+            tag = ""
+            if gs.eye_redirect:
+                tag = " [REDIRECTED]"
+            elif gs.eye_locked:
+                tag = " [LOCKED]"
             parts.append(f"🔴 {name}{tag}")
         if warn_ch is not None and warn_ch != ch:
             parts.append(f"🟡 {WALL_NAME.get(warn_ch, f'W{warn_ch}')} (next)")
         hidden_note = (
             f"  |  {'A' if gs.hidden_team == 0 else 'B'} tiles HIDDEN"
-            if gs.hidden_team is not None else "")
+            if gs.hidden_team is not None else ""
+        )
         self.lbl_eye.config(text="  ".join(parts) + hidden_note)
 
-    # ── Eye timers ────────────────────────────────────────────────────────────
+    # ── Timers ────────────────────────────────────────────────────────────────
     def _eye_timing(self):
+        """Return (active_ms, warn_ms) for current difficulty."""
         if self.gs.difficulty == "easy":
             cycle, warn = EYE_CYCLE_EASY, EYE_WARN_EASY
         else:
@@ -994,28 +1041,40 @@ class GameController(tk.Tk):
         return (cycle - warn) * 1000, warn * 1000
 
     def _schedule_eye(self):
+        """Start the eye cycle: wait (cycle - warn) ms, then show warning."""
         active_ms, _ = self._eye_timing()
-        self._next_eye_ch = (self.gs.eye_channel if self.gs.eye_locked
-                             else self.gs.pick_next_eye())
+        if self.gs.eye_locked:
+            self._next_eye_ch = self.gs.eye_channel  # locked → same wall
+        else:
+            self._next_eye_ch = self.gs.pick_next_eye()
         self._eye_after = self.after(active_ms, self._do_eye_warning)
 
     def _do_eye_warning(self):
-        if not self.gs.running: return
+        """Show yellow warning on the next eye channel, then schedule the actual move."""
+        if not self.gs.running:
+            return
         _, warn_ms = self._eye_timing()
+
         if self.gs.eye_redirect:
             self._next_eye_ch = self.gs.pick_next_eye()
-        if not self.gs.eye_locked:
+
+        if self.gs.eye_locked:
+            pass
+        else:
             self.gs.eye_warning_channel = self._next_eye_ch
             self._refresh_leds()
             self._update_eye_label()
+
         self._eye_after = self.after(warn_ms, self._do_eye_cycle)
 
     def _do_eye_cycle(self):
-        if not self.gs.running: return
+        if not self.gs.running:
+            return
         next_ch = None if self.gs.eye_locked else self._next_eye_ch
-        result  = self.gs.cycle_eyes(next_ch=next_ch)
+        result = self.gs.cycle_eyes(next_ch=next_ch)
         self._next_eye_ch = None
-        if result.get("action") == "locked":
+        action = result.get("action")
+        if action == "locked":
             self._status(f"LOCK — eye stays on {WALL_NAME.get(result['channel'])}!")
         else:
             self._status(f"Eye moved to {WALL_NAME.get(result['channel'])}!")
@@ -1024,7 +1083,8 @@ class GameController(tk.Tk):
         self._schedule_eye()
 
     def _tick(self):
-        if not self.gs.running: return
+        if not self.gs.running:
+            return
         rem = self.gs.remaining()
         self.lbl_timer.config(text=f"{int(rem)//60}:{int(rem)%60:02d}")
         if rem <= 0:
@@ -1036,6 +1096,7 @@ class GameController(tk.Tk):
     # ── Hardware button events ─────────────────────────────────────────────────
     def _on_hw_button(self, ch, led, is_triggered, is_disconnected):
         if led == 0:
+            # Eye / motion sensor
             self.after(0, self._handle_eye_sensor, ch, is_triggered)
         elif is_triggered:
             self.after(0, self._handle_press, ch, led)
@@ -1043,15 +1104,20 @@ class GameController(tk.Tk):
     def _handle_eye_sensor(self, ch, is_triggered):
         ev = self.gs.eye_sensor_changed(ch, is_triggered)
         if ev and ev.get("event") == "eye_elimination":
-            ln = "A" if ev["loser"] == 0 else "B"
-            wn = "B" if ev["loser"] == 0 else "A"
+            loser  = ev["loser"]
+            winner = ev["winner"]
+            self.gs.winner = winner
+            ln = "A" if loser == 0 else "B"
+            wn = "B" if loser == 0 else "A"
             self._status(f"👁 EYE SEES ALL — Team {ln} eliminated! Team {wn} wins!")
             self._refresh_leds()
             self._game_over()
 
     def _handle_press(self, ch, led):
         ev = self.gs.claim(ch, led)
-        if ev is None: return
+        if ev is None:
+            return
+
         claimer = ev.get("claimer", -1)
         tname   = "TEAM A" if claimer == 0 else "TEAM B"
         wname   = WALL_NAME.get(ch, f"W{ch}")
@@ -1064,9 +1130,10 @@ class GameController(tk.Tk):
         elif event == "point":
             own   = ev["wall_owner"]
             oname = "Team A's" if own == 0 else "Team B's"
+            pts   = self.gs.score[claimer]
             self._status(
-                f"POINT! {tname} grabbed {oname} tile on {wname}/{led}. "
-                f"({self.gs.score[claimer]} pts)")
+                f"POINT! {tname} grabbed {oname} tile on {wname}/{led}. ({pts} pts)"
+            )
         elif event == "powerup":
             sub = ev["sub"]
             self._status(f"POWER-UP [{sub.upper()}] used by {tname} on {wname}!")
@@ -1079,18 +1146,20 @@ class GameController(tk.Tk):
         self._update_scores()
         self._update_pool_labels()
         self._update_eye_label()
+
         if not self.gs.running:
             self._game_over()
 
     def _start_hide_timer(self):
+        """Start (or restart) the 5-second reveal timer for the hide power-up."""
         if self._hide_after is not None:
             self.after_cancel(self._hide_after)
-        self._hide_after = self.after(HIDE_DURATION_SEC * 1000,
-                                      self._reveal_hidden_tiles)
+        self._hide_after = self.after(HIDE_DURATION_SEC * 1000, self._reveal_hidden_tiles)
 
     def _reveal_hidden_tiles(self):
-        self._hide_after     = None
-        self.gs.hidden_team  = None
+        """Called when the hide power-up duration expires — restore opponent tiles."""
+        self._hide_after = None
+        self.gs.hidden_team = None
         if self.gs.running:
             self._refresh_leds()
             self._update_eye_label()
@@ -1103,7 +1172,8 @@ class GameController(tk.Tk):
 
     def _status(self, msg):
         self.lbl_status.config(
-            text=f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+            text=f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+        )
 
     # ── Game over ─────────────────────────────────────────────────────────────
     def _game_over(self):
@@ -1115,12 +1185,10 @@ class GameController(tk.Tk):
                 "DRAW!", ALL_CHANNELS, (255, 200, 0), GOLD
         elif w == 0:
             msg, flash_chs, flash_rgb, col = \
-                f"TEAM A WINS! ({gs.score[0]}-{gs.score[1]})", \
-                TEAM_A_CH, (0, 80, 255), COL_A
+                f"TEAM A WINS! ({gs.score[0]}-{gs.score[1]})", TEAM_A_CH, (0, 80, 255), COL_A
         else:
             msg, flash_chs, flash_rgb, col = \
-                f"TEAM B WINS! ({gs.score[1]}-{gs.score[0]})", \
-                TEAM_B_CH, (0, 255, 100), COL_B
+                f"TEAM B WINS! ({gs.score[1]}-{gs.score[0]})", TEAM_B_CH, (0, 255, 100), COL_B
 
         self.lbl_timer.config(text="END", fg=col)
         self._status(msg)
