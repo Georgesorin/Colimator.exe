@@ -1,271 +1,272 @@
-import json, os, queue, random, socket, threading, time, math
+import socket
+import threading
+import time
+import random
+import queue
 import tkinter as tk
 from tkinter import ttk
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PROTOCOL HARDWARE / SIMULATOR
+# CONFIGURARE PARAMETRI FIXI
 # ─────────────────────────────────────────────────────────────────────────────
-UDP_DEVICE_PORT   = 4626
-UDP_RECEIVER_PORT = 7800
-FRAME_DATA_LEN    = 132
+UDP_PORT_SEND = 4626
+UDP_PORT_RECV = 7800
+HARDWARE_TARGET_IP = "169.254.182.11"
+SIMULATOR_TARGET_IP = "127.0.0.1"
 
-PASSWORD_ARRAY = [
-    35,  63, 187,  69, 107, 178,  92,  76,  39,  69, 205,  37, 223, 255, 165, 231,
-    16, 220,  99,  61,  25, 203, 203, 155, 107,  30,  92, 144, 218, 194, 226,  88,
-   196, 190,  67, 195, 159, 185, 209,  24, 163,  65,  25, 172, 126,  63, 224,  61,
-   160,  80, 125,  91, 239, 144,  25, 141, 183, 204, 171, 188, 255, 162, 104, 225,
-   186,  91, 232,   3, 100, 208,  49, 211,  37, 192,  20,  99,  27,  92, 147, 152,
-    86, 177,  53, 153,  94, 177, 200,  33, 175, 195,  15, 228, 247,  18, 244, 150,
-   165, 229, 212,  96,  84, 200, 168, 191,  38, 112, 171, 116, 121, 186, 147, 203,
-    30, 118, 115, 159, 238, 139,  60,  57, 235, 213, 159, 198, 160,  50,  97, 201,
-   253, 242, 240,  77, 102,  12, 183, 235, 243, 247,  75,  90,  13, 236,  56, 133,
-   150, 128, 138, 190, 140,  13, 213,  18,   7, 117, 255,  45,  69, 214, 179,  50,
-    28,  66, 123, 239, 190,  73, 142, 218, 253,   5, 212, 174, 152,  75, 226, 226,
-   172,  78,  35,  93, 250, 238,  19,  32, 247, 223,  89, 123,  86, 138, 150, 146,
-   214, 192,  93, 152, 156, 211,  67,  51, 195, 165,  66,  10,  10,  31,   1, 198,
-   234, 135,  34, 128, 208, 200, 213, 169, 238,  74, 221, 208, 104, 170, 166,  36,
-    76, 177, 196,   3, 141, 167, 127,  56, 177, 203,  45, 107,  46,  82, 217, 139,
-   168,  45, 198,   6,  43,  11,  57,  88, 182,  84, 189,  29,  35, 143, 138, 171,
+PASSWORDS = [
+    35, 63, 187, 69, 107, 178, 92, 76, 39, 69, 205, 37, 223, 255, 165, 231,
+    16, 220, 99, 61, 25, 203, 203, 155, 107, 30, 92, 144, 218, 194, 226, 88,
+    196, 190, 67, 195, 159, 185, 209, 24, 163, 65, 25, 172, 126, 63, 224, 61,
+    160, 80, 125, 91, 239, 144, 25, 141, 183, 204, 171, 188, 255, 162, 104, 225,
+    186, 91, 232, 3, 100, 208, 49, 211, 37, 192, 20, 99, 27, 92, 147, 152,
+    86, 177, 53, 153, 94, 177, 200, 33, 175, 195, 15, 228, 247, 18, 244, 150,
+    165, 229, 212, 96, 84, 200, 168, 191, 38, 112, 171, 116, 121, 186, 147, 203,
+    30, 118, 115, 159, 238, 139, 60, 57, 235, 213, 159, 198, 160, 50, 97, 201,
+    253, 242, 240, 77, 102, 12, 183, 235, 243, 247, 75, 90, 13, 236, 56, 133,
+    150, 128, 138, 190, 140, 13, 213, 18, 7, 117, 255, 45, 69, 214, 179, 50,
+    28, 66, 123, 239, 190, 73, 142, 218, 253, 5, 212, 174, 152, 75, 226, 226,
+    172, 78, 35, 93, 250, 238, 19, 32, 247, 223, 89, 123, 86, 138, 150, 146,
+    214, 192, 93, 152, 156, 211, 67, 51, 195, 165, 66, 10, 10, 31, 1, 198,
+    234, 135, 34, 128, 208, 200, 213, 169, 238, 74, 221, 208, 104, 170, 166, 36,
+    76, 177, 196, 3, 141, 167, 127, 56, 177, 203, 45, 107, 46, 82, 217, 139,
+    168, 45, 198, 6, 43, 11, 57, 88, 182, 84, 189, 29, 35, 143, 138, 171,
 ]
 
-def _chk(data): return PASSWORD_ARRAY[sum(data) & 0xFF]
+def calc_chk(data):
+    return PASSWORDS[sum(data) & 0xFF]
 
-class NetService:
-    def __init__(self, target_ip="127.0.0.1"):
-        self._ip = target_ip; self._seq = 0; self._sq = queue.Queue(maxsize=30)
-        self._running = True; self.on_button = None; self._prev = {}
-        threading.Thread(target=self._send_loop, daemon=True).start()
-        threading.Thread(target=self._recv_loop, daemon=True).start()
+# ─────────────────────────────────────────────────────────────────────────────
+# MANAGER REȚEA (Standard Evil Eye: Fără forțare pe Loopback)
+# ─────────────────────────────────────────────────────────────────────────────
+class NetManager:
+    def __init__(self, target_ip, local_ip):
+        self.target_ip = target_ip
+        self.local_ip = local_ip
+        self.seq = 0
+        self.running = True
+        self.q = queue.Queue(maxsize=15)
+        self.on_press = None
+        
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        
+        if self.local_ip != "127.0.0.1":
+            try: self.sock.bind((self.local_ip, 0))
+            except: pass
 
-    def push_frame(self, leds):
-        f = bytearray(FRAME_DATA_LEN)
-        for (ch, led), (r, g, b) in leds.items():
-            if 1 <= ch <= 4 and 0 <= led <= 10:
-                f[led*12 + (ch-1)] = g; f[led*12 + 4 + (ch-1)] = r; f[led*12 + 8 + (ch-1)] = b
-        try: self._sq.put_nowait(bytes(f))
-        except: pass
+        threading.Thread(target=self._sender, daemon=True).start()
+        threading.Thread(target=self._receiver, daemon=True).start()
 
-    def _send_loop(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        while self._running:
-            try: frame = self._sq.get(timeout=1.0)
-            except: continue
-            self._seq = (self._seq + 1) & 0xFFFF
-            ep = (self._ip, UDP_DEVICE_PORT)
-            p_s = bytearray([0x75, 0, 0, 0, 8, 2, 0, 0, 0x33, 0x44, (self._seq>>8)&0xFF, self._seq&0xFF, 0, 0])
-            p_s.append(_chk(p_s)); sock.sendto(p_s, ep); time.sleep(0.005)
-            p_i = self._build_cmd(0x8877, 0xFFF0, bytearray([0,11]*4))
-            p_i.append(_chk(p_i)); sock.sendto(p_i, ep); time.sleep(0.005)
-            p_d = self._build_cmd(0x8877, 0x0000, frame)
-            p_d.append(_chk(p_d)); sock.sendto(p_d, ep); time.sleep(0.005)
-            p_e = bytearray([0x75, 0, 0, 0, 8, 2, 0, 0, 0x55, 0x66, (self._seq>>8)&0xFF, self._seq&0xFF, 0, 0])
-            p_e.append(_chk(p_e)); sock.sendto(p_e, ep)
-
-    def _build_cmd(self, d_id, loc, pay):
-        inner = bytes([2,0,0, (d_id>>8)&0xFF, d_id&0xFF, (loc>>8)&0xFF, loc&0xFF, (len(pay)>>8)&0xFF, len(pay)&0xFF]) + pay
-        h = bytearray([0x75, 0, 0, (len(inner)>>8)&0xFF, len(inner)&0xFF]) + inner
-        h[10], h[11] = (self._seq>>8)&0xFF, self._seq&0xFF
-        return h
-
-    def _recv_loop(self):
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(("0.0.0.0", UDP_RECEIVER_PORT))
-        while self._running:
+    def _sender(self):
+        while self.running:
             try:
-                data, _ = s.recvfrom(1024)
-                if len(data) == 687:
+                frame = self.q.get(timeout=1.0)
+                self.seq = (self.seq + 1) & 0xFFFF
+                dest = (self.target_ip, UDP_PORT_SEND)
+
+                p1 = bytearray([0x75, 0, 0, 0, 8, 2, 0, 0, 0x33, 0x44, (self.seq>>8)&0xFF, self.seq&0xFF, 0, 0])
+                p1.append(calc_chk(p1)); self.sock.sendto(p1, dest); time.sleep(0.008)
+
+                p2_inner = bytes([2,0,0, 0x88, 0x77, 0xFF, 0xF0, 0, 8]) + bytearray([0,11]*4)
+                p2 = bytearray([0x75, 0, 0, 0, len(p2_inner)]) + p2_inner
+                p2[10], p2[11] = (self.seq>>8)&0xFF, self.seq&0xFF
+                p2.append(calc_chk(p2)); self.sock.sendto(p2, dest); time.sleep(0.008)
+
+                p3_inner = bytes([2,0,0, 0x88, 0x77, 0, 0, 0, 132]) + frame
+                p3 = bytearray([0x75, 0, 0, 0, len(p3_inner)]) + p3_inner
+                p3[10], p3[11] = (self.seq>>8)&0xFF, self.seq&0xFF
+                p3.append(calc_chk(p3)); self.sock.sendto(p3, dest); time.sleep(0.008)
+
+                p4 = bytearray([0x75, 0, 0, 0, 8, 2, 0, 0, 0x55, 0x66, (self.seq>>8)&0xFF, self.seq&0xFF, 0, 0])
+                p4.append(calc_chk(p4)); self.sock.sendto(p4, dest)
+            except queue.Empty: continue
+
+    def _receiver(self):
+        rsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        rsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try: rsock.bind((self.local_ip, UDP_PORT_RECV))
+        except: rsock.bind(("0.0.0.0", UDP_PORT_RECV))
+        
+        last_state = {}
+        while self.running:
+            try:
+                data, _ = rsock.recvfrom(1024)
+                if len(data) == 687 and data[0] == 0x88:
                     for ch in range(1, 5):
                         base = 2 + (ch-1)*171
-                        for led in range(11):
-                            pressed = (data[base + 1 + led] == 0xCC)
-                            if pressed and not self._prev.get((ch, led)):
-                                if self.on_button: self.on_button(ch, led)
-                            self._prev[(ch, led)] = pressed
+                        for l in range(11):
+                            pressed = (data[base+1+l] == 0xCC)
+                            if pressed and not last_state.get((ch,l)):
+                                if self.on_press: self.on_press(ch, l)
+                            last_state[(ch,l)] = pressed
             except: pass
+
+    def push(self, led_dict):
+        buf = bytearray(132)
+        for (ch, led), (r, g, b) in led_dict.items():
+            if 1 <= ch <= 4 and 0 <= led <= 10:
+                idx = led * 12 + (ch-1)
+                buf[idx], buf[idx+4], buf[idx+8] = g, r, b
+        try: self.q.put(bytes(buf), block=False)
+        except queue.Full: pass
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LOGICA JOCULUI
 # ─────────────────────────────────────────────────────────────────────────────
-C_OFF=(0,0,0); C_CYAN=(0,255,255); C_GREEN=(0,255,0); C_RED=(255,0,0); 
-C_GOLD=(255,180,0); C_PURPLE=(200,0,255); C_WHITE=(255,255,255); C_YELLOW=(255,255,0)
-WALL_NAMES = {1: "Sud", 2: "Est", 3: "Nord", 4: "Vest"}
-
-class EvilMemoryGame:
+class GameEngine:
     def __init__(self, net, ui, diff):
-        self.net = net; self.ui = ui; self.diff = diff
-        self.score = 0; self.round = 1; self.ended = False
-        self.pattern = set(); self.guessed = set(); self.wrong_pressed = set(); self.frenzy_tiles = set()
-        self.phase = "START_ANIMATION"; self.eye_state = "OFF"; self.eye_timer = time.time(); self.eye_wall = 0
+        self.net, self.ui, self.diff = net, ui, diff
+        self.score = 0
+        self.pattern, self.guessed, self.wrong_guessed, self.frenzy = set(), set(), set(), set()
+        self.eye_wall = 1
+        self.state = "OFF"
         
-        cfg = {"EASY":(2,4,3), "MEDIUM":(3,5,2), "HARD":(5,6,1)} 
-        self.base_tiles, self.T_GAZE, self.T_WARN = cfg[diff]
+        configs = {"EASY": (2, 3, 5), "MEDIUM": (4, 2, 5), "HARD": (6, 1, 5)}
+        self.base_tiles, self.t_warn, self.t_gaze = configs[diff]
 
     def start(self):
-        threading.Thread(target=self._main_loop, daemon=True).start()
+        threading.Thread(target=self._run, daemon=True).start()
 
-    def _generate_round(self):
-        # Dificultate progresivă bazată pe scor
-        num_tiles = self.base_tiles + (self.score // 5)
-        valid_slots = [(c,l) for c in range(1,5) for l in range(1,11)]
-        self.pattern = set(random.sample(valid_slots, min(num_tiles, 35)))
-        self.guessed.clear(); self.wrong_pressed.clear(); self.frenzy_tiles.clear()
-        self.ui.on_game_event("log", f"🎯 Misiune Nouă! Memorați cele {len(self.pattern)} puncte.")
-
-    def _run_start_animation(self):
-        self.ui.on_game_event("log", "🌀 Inițializare sistem...")
-        start_time = time.time()
-        delay = 0.1; curr_wall = 1
-        while time.time() - start_time < 3.0:
-            states = { (c,l): C_OFF for c in range(1,5) for l in range(11) }
-            for l in range(1, 11): states[(curr_wall, l)] = C_CYAN
-            self.net.push_frame(states); time.sleep(delay)
-            delay = max(0.02, delay * 0.85); curr_wall = (curr_wall % 4) + 1
-
-    def _run_roulette(self):
-        self.ui.on_game_event("log", "👁️ Ochiul Malefic scanează...")
-        curr = random.randint(1,4)
-        for i in range(15):
-            # Trimitere pachet de curățare (doar ochiul alb, restul OFF)
-            states = { (c,l): C_OFF for c in range(1,5) for l in range(11) }
-            states[(curr, 0)] = C_WHITE
-            self.net.push_frame(states)
-            time.sleep(0.04 + i*0.02)
-            curr = (curr%4)+1
-        self.eye_wall = curr
-
-    def _main_loop(self):
-        self._run_start_animation()
-        self._generate_round()
-        
-        while not self.ended:
-            now = time.time()
-
-            # --- START RULETĂ ---
-            if self.eye_state == "OFF":
-                self.phase = "ROULETTE"
-                # Curățăm ecranele înainte de ruletă
-                self.guessed.clear(); self.wrong_pressed.clear()
-                self._run_roulette()
-                self.eye_state = "WARNING"; self.eye_timer = time.time()
-                self.ui.on_game_event("log", f"⚠️ Atenție! Ochiul s-a oprit pe {WALL_NAMES[self.eye_wall]}!")
-
-            # --- WARNING (LICĂRIRE) ---
-            elif self.eye_state == "WARNING":
-                if now - self.eye_timer > self.T_WARN:
-                    if random.random() < 0.2: # Surprise Factor
-                        self.eye_state = "FRENZY"
-                        self.frenzy_tiles = set((self.eye_wall, l) for l in random.sample(range(1,11), 4))
-                        self.ui.on_game_event("log", "🌟 FEBRA DE AUR! Loviți MOV!")
-                    else:
-                        self.eye_state = "GAZE"
-                        self.ui.on_game_event("log", "🔴 OCHI DESCHIS! NU VĂ MIȘCAȚI!")
-                    self.eye_timer = now; self._refresh()
-                else:
-                    col = C_YELLOW if int(now*10)%2==0 else C_OFF
-                    # Menținem restul pereților stinși în timpul warning-ului
-                    st = { (c,l): C_OFF for c in range(1,5) for l in range(11) }
-                    st[(self.eye_wall, 0)] = col
-                    self.net.push_frame(st)
-
-            # --- GAZE / FRENZY (OCHIUL TE VEDE) ---
-            elif self.eye_state in ["GAZE", "FRENZY"]:
-                if now - self.eye_timer > self.T_GAZE:
-                    self.eye_state = "ACTION"; self.eye_timer = now
-                    self.ui.on_game_event("log", "🟢 Ochi închis! ACȚIONAȚI!"); self._refresh()
-                else:
-                    self._refresh()
-
-            # --- ACTION (AI VOIE SĂ APESI) ---
-            elif self.eye_state == "ACTION":
-                if len(self.guessed) == len(self.pattern):
-                    # AUTOMATIC NEXT ROUND
-                    self.ui.on_game_event("log", "🎉 EXCELENT! Generare rundă nouă...")
-                    self.round += 1; self._generate_round()
-                    self.eye_state = "OFF" # Declanșează ruleta imediat
-                elif now - self.eye_timer > 10.0: # Timeout
-                    self.ui.on_game_event("log", "🔄 Timp expirat! Reset pattern."); 
-                    self.eye_state = "OFF"
-                self._refresh()
-
-            elif self.phase == "STUNNED":
-                if now - self.phase_timer > 2.0:
-                    self.phase = "ROULETTE"; self.eye_state = "OFF"
-                else:
-                    self._set_all_stun(C_RED if int(now*10)%2==0 else C_OFF)
-
-            time.sleep(0.05)
-
-    def on_button(self, ch, led):
-        if self.ended or led == 0 or self.phase == "STUNNED": return
-
-        # INTERZIS ÎN GAZE
-        if self.eye_state == "GAZE":
-            self.score = max(0, self.score - 5)
-            self.phase = "STUNNED"; self.phase_timer = time.time()
-            self.ui.on_game_event("log", "☠️ TE-A VĂZUT MIȘCÂNDU-TE! -5 pct."); self.ui.on_game_event("update_score", self.score)
-            return
-
-        # FRENZY MODE (MOV)
-        if self.eye_state == "FRENZY" and ch == self.eye_wall:
-            if (ch, led) in self.frenzy_tiles:
-                self.score += 3; self.frenzy_tiles.remove((ch, led))
-                self.ui.on_game_event("update_score", self.score); self._refresh(); return
-
-        # ACTION MODE (CYAN)
-        if self.eye_state == "ACTION":
-            if (ch, led) in self.pattern:
-                if (ch, led) not in self.guessed: 
-                    self.guessed.add((ch, led)); self.score += 1
-            else:
-                if (ch, led) not in self.wrong_pressed: 
-                    self.score = max(0, self.score - 2); self.wrong_pressed.add((ch, led))
-            self.ui.on_game_event("update_score", self.score); self._refresh()
-
-    def _refresh(self):
-        states = {}
+    def _draw(self):
+        f = {}
         for ch in range(1, 5):
             for l in range(1, 11):
-                # Pattern-ul apare doar în GAZE sau ACTION
-                if (self.eye_state in ["GAZE", "ACTION"]) and (ch, l) in self.pattern and (ch, l) not in self.guessed:
-                    col = C_CYAN
-                elif (ch, l) in self.guessed: col = C_GREEN
-                elif (ch, l) in self.wrong_pressed: col = C_RED
-                elif (ch, l) in self.frenzy_tiles: col = C_PURPLE
-                else: col = C_OFF
-                states[(ch, l)] = col
+                if (ch, l) in self.guessed: col = (0, 255, 0)
+                elif (ch, l) in self.wrong_guessed: col = (255, 0, 0)
+                elif self.state == "GAZE" and (ch, l) in self.pattern: col = (0, 255, 255)
+                elif self.state == "GAZE" and (ch, l) in self.frenzy: col = (200, 0, 255)
+                else: col = (0, 0, 0)
+                f[(ch, l)] = col
+            ec = (0,0,0)
+            if self.state == "ROULETTE": ec = (255,255,255) if ch == self.eye_wall else (0,0,0)
+            elif self.state == "WARNING": ec = (255,255,0) if ch == self.eye_wall and int(time.time()*10)%2==0 else (0,0,0)
+            elif self.state == "GAZE": ec = (255,150,0) if self.frenzy and ch == self.eye_wall else ((255,0,0) if ch == self.eye_wall else (0,0,0))
+            f[(ch, 0)] = ec
+        self.net.push(f)
+
+    def _run(self):
+        self.ui.log("🌀 Pornire sistem...")
+        st = time.time(); w = 1
+        while time.time() - st < 3.0:
+            frame = {(c, l): (0, 255, 255) if c == w and l > 0 else (0,0,0) for c in range(1,5) for l in range(11)}
+            self.net.push(frame); time.sleep(0.08); w = (w % 4) + 1
+
+        while True:
+            num = min(self.base_tiles + (self.score // 5), 35)
+            self.pattern = set(random.sample([(c,l) for c in range(1,5) for l in range(1,11)], num))
+            self.guessed.clear(); self.wrong_guessed.clear(); self.frenzy.clear()
+
+            self.state = "ROULETTE"
+            self.ui.log("👁️ Scanează..."); curr = random.randint(1,4)
+            for i in range(15):
+                self.eye_wall = curr; self._draw(); time.sleep(0.05 + i*0.02); curr = (curr % 4) + 1
+            self.eye_wall = curr
+
+            self.state = "WARNING"; st = time.time()
+            while time.time() - st < self.t_warn: self._draw(); time.sleep(0.1)
+
+            self.state = "GAZE"
+            if random.random() < 0.2:
+                self.frenzy = set((self.eye_wall, l) for l in random.sample(range(1,11), 4))
+                self.ui.log("🌟 FEBRA DE AUR!")
+            else: self.ui.log("🔴 NU MIȘCAȚI!")
             
-            # Ochiul
-            if self.eye_state == "GAZE" and ch == self.eye_wall: states[(ch, 0)] = C_RED
-            elif self.eye_state == "FRENZY" and ch == self.eye_wall: states[(ch, 0)] = C_GOLD
-            else: states[(ch, 0)] = C_OFF
-        self.net.push_frame(states)
+            st = time.time()
+            while time.time() - st < self.t_gaze:
+                if self.state == "STUN": break
+                self._draw(); time.sleep(0.1)
 
-    def _set_all_stun(self, col):
-        st = {(c,l): col for c in range(1,5) for l in range(11)}; self.net.push_frame(st)
+            if self.state == "STUN":
+                for _ in range(6):
+                    self.net.push({(c,l): (255,0,0) for c in range(1,5) for l in range(11)})
+                    time.sleep(0.2)
+                    self.net.push({(c,l): (0,0,0) for c in range(1,5) for l in range(11)})
+                    time.sleep(0.2)
+                continue
+
+            self.state = "ACTION"; self.ui.log("🟢 ACȚIONAȚI!")
+            st = time.time()
+            while time.time() - st < 7.0:
+                self._draw()
+                if len(self.guessed) >= len(self.pattern):
+                    self.ui.log("🎉 RUNDĂ COMPLETĂ!"); self.score += 5; self.ui.update_score(self.score)
+                    break
+                time.sleep(0.1)
+            else: self.ui.log("⌛ Timp expirat!")
+            time.sleep(1)
+
+    def on_press(self, ch, l):
+        if l == 0: return
+        if self.state == "GAZE":
+            if self.frenzy and ch == self.eye_wall and (ch, l) in self.frenzy:
+                self.score += 3; self.frenzy.remove((ch, l)); self.ui.update_score(self.score)
+            else:
+                self.score = max(0, self.score - 5); self.ui.update_score(self.score)
+                self.state = "STUN"; self.ui.log("☠️ TE-A VĂZUT!")
+        elif self.state == "ACTION":
+            if (ch, l) in self.pattern:
+                if (ch, l) not in self.guessed: self.guessed.add((ch, l)); self.score += 1; self.ui.update_score(self.score)
+            else:
+                if (ch, l) not in self.wrong_guessed:
+                    self.wrong_guessed.add((ch, l)); self.score = max(0, self.score - 2); self.ui.update_score(self.score)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UI 
+# UI PRINCIPAL
 # ─────────────────────────────────────────────────────────────────────────────
-class MemoryGameUI(tk.Tk):
+class App(tk.Tk):
     def __init__(self):
-        super().__init__(); self.title("Evil Eye: Final Edition"); self.geometry("450x600"); self.configure(bg="#0a0a0a")
-        self.net = NetService(); self.game = None
-        self.menu = tk.Frame(self, bg="#0a0a0a"); self.menu.place(relx=0.5, rely=0.5, anchor="center")
-        tk.Label(self.menu, text="EYE: CO-OP MEMORY", font=("Arial", 20, "bold"), fg="cyan", bg="#0a0a0a").pack(pady=20)
-        self.d_var = tk.StringVar(value="MEDIUM")
-        for d in ["EASY", "MEDIUM", "HARD"]: tk.Radiobutton(self.menu, text=d, variable=self.d_var, value=d, fg="white", bg="#0a0a0a", font=("Arial", 11)).pack()
-        tk.Button(self.menu, text="START MISSION", command=self.start, font=("Arial", 12), bg="#008080", fg="white", relief="flat", padx=20).pack(pady=20)
+        super().__init__(); self.title("Evil Says Launcher"); self.geometry("450x600"); self.configure(bg="#0c0f18")
+        self.show_mode_selection()
 
-    def start(self):
-        self.menu.destroy()
-        self.lbl = tk.Label(self, text="SCORE: 0", font=("Arial", 30, "bold"), fg="white", bg="#0a0a0a"); self.lbl.pack(pady=10)
-        self.txt = tk.Text(self, height=12, bg="black", fg="#00ced1", font=("Consolas", 10)); self.txt.pack(fill="x", side="bottom")
-        self.game = EvilMemoryGame(self.net, self, self.d_var.get()); self.net.on_button = self.game.on_button; self.game.start()
+    def show_mode_selection(self):
+        self.frame = tk.Frame(self, bg="#0c0f18"); self.frame.place(relx=0.5, rely=0.5, anchor="center")
+        tk.Label(self.frame, text="EVIL EYE GAME", font=("Courier New", 24, "bold"), fg="#ffd000", bg="#0c0f18").pack(pady=30)
+        
+        tk.Button(self.frame, text="🚀 HARDWARE MODE", font=("Arial", 14, "bold"), bg="#1a3a1a", fg="#00ff73", width=25, height=2,
+                  command=self.mode_hardware).pack(pady=10)
+        
+        tk.Button(self.frame, text="💻 SOFTWARE MODE", font=("Arial", 14, "bold"), bg="#1a2a3a", fg="#0073ff", width=25, height=2,
+                  command=self.mode_software).pack(pady=10)
 
-    def on_game_event(self, event, *args):
-        if event == "update_score": self.lbl.config(text=f"SCORE: {args[0]}")
-        elif event == "log": self.txt.insert("1.0", f"[{time.strftime('%H:%M:%S')}] {args[0]}\n")
+    def mode_hardware(self):
+        for w in self.frame.winfo_children(): w.destroy()
+        tk.Label(self.frame, text="ALEGE INTERFAȚA ETHERNET", fg="white", bg="#0c0f18", font=("Arial", 12)).pack(pady=10)
+        import psutil
+        for iface, addrs in psutil.net_if_addrs().items():
+            for a in addrs:
+                if a.family == socket.AF_INET and not a.address.startswith("127."):
+                    tk.Button(self.frame, text=f"{iface}: {a.address}", width=35, command=lambda ip=a.address: self.setup_difficulty(ip, HARDWARE_TARGET_IP)).pack(pady=2)
+
+    def mode_software(self):
+        self.setup_difficulty("127.0.0.1", SIMULATOR_TARGET_IP)
+
+    def setup_difficulty(self, local_ip, target_ip):
+        self.local_ip = local_ip
+        self.target_ip = target_ip
+        
+        # Discovery Handshake 0x67
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        pkt = bytearray([0x67, 1, 2, 12, 10, 2, 75, 88, 45, 72, 67, 48, 52, 3, 0, 0, 255, 255, 0, 0, 0, 20])
+        pkt.append(calc_chk(pkt)); s.sendto(pkt, ("255.255.255.255", 4626)); s.close()
+
+        for w in self.frame.winfo_children(): w.destroy()
+        tk.Label(self.frame, text="DIFICULTATE", font=("Arial", 14), fg="white", bg="#0c0f18").pack(pady=10)
+        self.dv = tk.StringVar(value="MEDIUM")
+        for d in ["EASY", "MEDIUM", "HARD"]: tk.Radiobutton(self.frame, text=d, variable=self.dv, value=d, fg="white", bg="#0c0f18").pack()
+        tk.Button(self.frame, text="START JOC", font=("Arial", 14, "bold"), bg="#ffd000", fg="black", command=self.start_game).pack(pady=20)
+
+    def start_game(self):
+        d = self.dv.get(); self.frame.destroy()
+        self.sl = tk.Label(self, text="SCOR: 0", font=("Courier New", 30, "bold"), fg="white", bg="#0c0f18"); self.sl.pack(pady=20)
+        self.tb = tk.Text(self, height=12, bg="black", fg="#00ff00", font=("Consolas", 10)); self.tb.pack(fill="x", side="bottom")
+        
+        self.net = NetManager(self.target_ip, self.local_ip)
+        self.eng = GameEngine(self.net, self, d)
+        self.net.on_press = self.eng.on_press; self.eng.start()
+
+    def log(self, m): self.tb.insert("1.0", f"[{time.strftime('%H:%M:%S')}] {m}\n")
+    def update_score(self, s): self.sl.config(text=f"SCOR: {s}")
 
 if __name__ == "__main__":
-    MemoryGameUI().mainloop()
+    App().mainloop()
