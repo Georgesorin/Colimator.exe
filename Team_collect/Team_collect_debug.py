@@ -88,18 +88,33 @@ POWERUP_POOL_HARD = ["redirect", "redirect", "lock", "hide", "hide"]
 
 HIDE_DURATION_SEC = 5   # seconds opponent tiles stay blacked-out
 
-# LED colours (r, g, b)
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  DIAGNOSTIC BUILD — pure primaries to identify channel order    ║
+# ║                                                                  ║
+# ║  Expected on hardware:                                           ║
+# ║    Eye ACTIVE  → pure RED    (255, 0,   0)                      ║
+# ║    Eye WARNING → pure GREEN  (0,   255, 0)                       ║
+# ║    Eye IDLE    → pure BLUE   (0,   0,   255)                     ║
+# ║    POINT tile  → WHITE       (255, 255, 255)                     ║
+# ║    REDIRECT PU → CYAN        (0,   255, 255)                     ║
+# ║    LOCK PU     → MAGENTA     (255, 0,   255)                     ║
+# ║    HIDE PU     → YELLOW      (255, 255, 0)                       ║
+# ║    IDLE tile   → DIM WHITE   (60,  60,  60)                      ║
+# ║                                                                  ║
+# ║  Report back which ACTUAL colour each appears on the hardware.  ║
+# ║  That tells us the exact byte-order the device expects.         ║
+# ╚══════════════════════════════════════════════════════════════════╝
 C_OFF        = (0,   0,   0)
-C_POINT      = (255, 220, 0)    # yellow       – point tile
-C_PU_REDIRECT= (255, 0,   0)    # red          – redirect power-up
-C_PU_LOCK    = (0,   100, 255)  # blue         – lock power-up
-C_PU_HIDE    = (180, 0,   255)  # purple       – hide power-up
-C_EYE_IDLE   = (255, 255, 255)  # white        – idle eye (off-cycle)
-C_EYE_WARN   = (255, 220, 0)    # yellow       – warning: eye about to move here
-C_EYE_ON     = (255, 0,   0)    # bright red   – active eye (open, locked, or redirected)
-C_HIDDEN     = (0,   0,   0)    # off          – tile blacked out by hide PU
-C_IDLE_A     = (40,  40,  40)   # dim white    – Team A idle tile
-C_IDLE_B     = (40,  40,  40)   # dim white    – Team B idle tile
+C_POINT      = (255, 255, 255)  # DIAG: WHITE        → point tile
+C_PU_REDIRECT= (0,   255, 255)  # DIAG: CYAN         → redirect PU
+C_PU_LOCK    = (255, 0,   255)  # DIAG: MAGENTA      → lock PU
+C_PU_HIDE    = (255, 255, 0)    # DIAG: YELLOW       → hide PU
+C_EYE_IDLE   = (0,   0,   255)  # DIAG: PURE BLUE    → idle eye
+C_EYE_WARN   = (0,   255, 0)    # DIAG: PURE GREEN   → warning eye
+C_EYE_ON     = (255, 0,   0)    # DIAG: PURE RED     → active eye
+C_HIDDEN     = (0,   0,   0)    # off
+C_IDLE_A     = (60,  60,  60)   # dim white – idle tile
+C_IDLE_B     = (60,  60,  60)   # dim white – idle tile (same as A in diag build)
 
 POWERUP_COLOR = {
     "redirect": C_PU_REDIRECT,
