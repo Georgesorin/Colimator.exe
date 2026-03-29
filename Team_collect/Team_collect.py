@@ -76,6 +76,14 @@ TOTAL_POINTS       = 7
 MAX_MAP_POINTS     = 2   # active point slots per team
 MAX_MAP_POWERUPS   = 1   # active power-up slots per team
 
+# ── Hardware LED layout ───────────────────────────────────────────────────────
+# The eye/motion-sensor is LED index 0 on each wall channel.
+# Pressure tiles are LEDs 1 .. LEDS_PER_CHANNEL-1  (imported from Controller).
+# If the hardware numbers tiles 0-9 and puts the eye at index 10, set EYE_LED=10
+# and TILE_LED_START=0.  Current assumption matches the wiki: eye=0, tiles=1-10.
+EYE_LED        = 0   # index of the motion-sensor LED on each channel
+TILE_LED_START = 1   # first tile LED index
+
 ALL_CHANNELS = [1, 2, 3, 4]
 TEAM_A_CH    = [1, 2]   # North, East
 TEAM_B_CH    = [3, 4]   # South, West
@@ -88,7 +96,16 @@ POWERUP_POOL_HARD = ["redirect", "redirect", "lock", "hide", "hide"]
 
 HIDE_DURATION_SEC = 5   # seconds opponent tiles stay blacked-out
 
-# LED colours (r, g, b)
+# ── Colour helpers ────────────────────────────────────────────────────────────
+# The hardware controller expects colours in GRB byte order (WS2812 standard),
+# not the RGB order that is natural to write.  All colour tuples in this file
+# are written in plain (R, G, B) for readability; _grb() swaps them before
+# every call to svc.set_led so the hardware displays the intended colour.
+def _grb(r, g, b):
+    """Convert an (R,G,B) tuple to the GRB order the hardware expects."""
+    return (g, r, b)
+
+# LED colours — written as (R, G, B); _grb() is applied at send time.
 C_OFF        = (0,   0,   0)
 C_POINT      = (255, 220, 0)    # yellow       – point tile
 C_PU_REDIRECT= (255, 0,   0)    # red          – redirect power-up
@@ -96,7 +113,7 @@ C_PU_LOCK    = (0,   100, 255)  # blue         – lock power-up
 C_PU_HIDE    = (180, 0,   255)  # purple       – hide power-up
 C_EYE_IDLE   = (255, 255, 255)  # white        – idle eye (off-cycle)
 C_EYE_WARN   = (255, 220, 0)    # yellow       – warning: eye about to move here
-C_EYE_ON     = (255, 0,   0)    # bright red   – active eye (open, locked, or redirected)
+C_EYE_ON     = (255, 0,   0)    # bright red   – active eye (open / locked / redirected)
 C_HIDDEN     = (0,   0,   0)    # off          – tile blacked out by hide PU
 C_IDLE_A     = (40,  40,  40)   # dim white    – Team A idle tile
 C_IDLE_B     = (40,  40,  40)   # dim white    – Team B idle tile
@@ -168,11 +185,11 @@ class GameState:
 
     def _free_tiles_for(self, team):
         occupied = set(self.map_items)
-        # Eye (LED 0) is never a tile
+        # Eye LED is never a tile
         return [
             (ch, led)
             for ch in TEAM_CH[team]
-            for led in range(1, LEDS_PER_CHANNEL)
+            for led in range(TILE_LED_START, LEDS_PER_CHANNEL)
             if (ch, led) not in occupied
         ]
 
@@ -782,7 +799,7 @@ class GameController(tk.Tk):
             row_frm = tk.Frame(frm, bg=PANEL)
             row_frm.pack(padx=4, pady=(1, 4))
             for led in range(LEDS_PER_CHANNEL):
-                txt = "EYE" if led == 0 else str(led)
+                txt = "EYE" if led == EYE_LED else str(led)
                 lbl = tk.Label(
                     row_frm, text=txt, fg=DIM, bg="#0a0a0a",
                     font=("Courier New", 6), width=3,
@@ -878,8 +895,9 @@ class GameController(tk.Tk):
         # ── Phase 1: solid colours ────────────────────────────────────────────
         for ch in range(1, 5):
             col = C_TEAM_A_OPEN if ch in TEAM_A_CH else C_TEAM_B_OPEN
-            for led in range(LEDS_PER_CHANNEL):
-                self._send(ch, led, C_EYE_IDLE if led == 0 else col)
+            self._send(ch, EYE_LED, C_EYE_IDLE)
+            for led in range(TILE_LED_START, LEDS_PER_CHANNEL):
+                self._send(ch, led, col)
 
         # ── Phase 2 starts after solid_ms ─────────────────────────────────────
         def start_flash():
@@ -889,10 +907,8 @@ class GameController(tk.Tk):
             self.gs.eye_warning_channel = first_eye
 
             for ch in range(1, 5):
-                col = C_TEAM_A_OPEN if ch in TEAM_A_CH else C_TEAM_B_OPEN
-                # Eye LED: yellow on the warned channel, white elsewhere
                 eye_col = C_EYE_WARN if ch == first_eye else C_EYE_IDLE
-                self._send(ch, 0, eye_col)
+                self._send(ch, EYE_LED, eye_col)
 
             self.lbl_timer.config(text="FLASH!", fg=GOLD)
             self._status("Walls flashing — first eye warming up…")
@@ -902,14 +918,14 @@ class GameController(tk.Tk):
 
         def _do_flash(flashes, on, first_eye, col_a, col_b, interval):
             if flashes <= 0:
-                # Phase 3: actually start
                 self.after(0, _start_game, first_eye)
                 return
             for ch in range(1, 5):
                 tile_col = (col_a if ch in TEAM_A_CH else col_b) if on else C_OFF
                 eye_col  = C_EYE_WARN if ch == first_eye else (C_EYE_IDLE if on else C_OFF)
-                for led in range(LEDS_PER_CHANNEL):
-                    self._send(ch, led, eye_col if led == 0 else tile_col)
+                self._send(ch, EYE_LED, eye_col)
+                for led in range(TILE_LED_START, LEDS_PER_CHANNEL):
+                    self._send(ch, led, tile_col)
             self._opening_flash_after = self.after(
                 interval, _do_flash, flashes - 1, not on,
                 first_eye, col_a, col_b, interval
@@ -958,11 +974,11 @@ class GameController(tk.Tk):
 
     # ── LED helpers ───────────────────────────────────────────────────────────
     def _send(self, ch, led, col):
-        self.svc.set_led(ch, led, *col)
+        r, g, b = col
+        self.svc.set_led(ch, led, *_grb(r, g, b))   # hardware wants GRB order
         lbl = self.map_labels.get((ch, led))
         if not lbl:
             return
-        r, g, b = col
         bg = f"#{r:02x}{g:02x}{b:02x}" if (r or g or b) else "#0a0a0a"
         fg = WHITE if (r + g + b) > 60 else DIM
         lbl.config(bg=bg, fg=fg)
@@ -974,22 +990,18 @@ class GameController(tk.Tk):
             team = gs.ch_team(ch)
             tiles_hidden = (gs.hidden_team is not None and team == gs.hidden_team)
 
-            # Eye (LED 0) — never hidden by the hide power-up
+            # Eye LED — never hidden by the hide power-up
             if ch == gs.eye_channel:
-                # Active eye — always bright red (redirect/lock don't change colour now)
                 eye_col = C_EYE_ON
             elif ch == gs.eye_warning_channel:
-                # Next eye warning — yellow
                 eye_col = C_EYE_WARN
             else:
-                # Idle eye — white
                 eye_col = C_EYE_IDLE
-            self._send(ch, 0, eye_col)
+            self._send(ch, EYE_LED, eye_col)
 
-            # Tiles (LEDs 1-10)
-            for led in range(1, LEDS_PER_CHANNEL):
+            # Tile LEDs
+            for led in range(TILE_LED_START, LEDS_PER_CHANNEL):
                 if tiles_hidden:
-                    # Black out this team's tiles — opponents can't see them
                     col = C_HIDDEN
                 else:
                     pos = (ch, led)
@@ -1003,7 +1015,7 @@ class GameController(tk.Tk):
 
     def _all_off(self):
         for ch in range(1, 5):
-            for led in range(LEDS_PER_CHANNEL):
+            for led in ([EYE_LED] + list(range(TILE_LED_START, LEDS_PER_CHANNEL))):
                 self._send(ch, led, C_OFF)
 
     def _update_pool_labels(self):
@@ -1112,7 +1124,7 @@ class GameController(tk.Tk):
 
     # ── Hardware button events ─────────────────────────────────────────────────
     def _on_hw_button(self, ch, led, is_triggered, is_disconnected):
-        if led == 0:
+        if led == EYE_LED:
             # Eye / motion sensor
             self.after(0, self._handle_eye_sensor, ch, is_triggered)
         elif is_triggered:
@@ -1135,7 +1147,8 @@ class GameController(tk.Tk):
         def _step(n):
             col = (255, 0, 0) if n % 2 == 0 else C_OFF
             for fch in ALL_CHANNELS:
-                for led in range(LEDS_PER_CHANNEL):
+                self._send(fch, EYE_LED, col)
+                for led in range(TILE_LED_START, LEDS_PER_CHANNEL):
                     self._send(fch, led, col)
             if n > 0:
                 self.after(interval_ms, _step, n - 1)
@@ -1230,7 +1243,8 @@ class GameController(tk.Tk):
         def flash(n=6):
             c = flash_rgb if n % 2 == 0 else C_OFF
             for fch in flash_chs:
-                for led in range(LEDS_PER_CHANNEL):
+                self._send(fch, EYE_LED, c)
+                for led in range(TILE_LED_START, LEDS_PER_CHANNEL):
                     self._send(fch, led, c)
             if n > 0:
                 self.after(350, flash, n - 1)
